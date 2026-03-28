@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/Strafe.dir/link.d CMakeFiles/Strafe.dir/src/main.cpp.o CMakeFiles/Strafe.dir/src/app.cpp.o CMakeFiles/Strafe.dir/src/glfw.cpp.o -o /home/immad/projects/Strafe/Strafe  -Wl,-rpath,/home/immad/Vulkan/1.4.341.1/x86_64/lib /home/immad/Vulkan/1.4.341.1/x86_64/lib/libvulkan.so -lglfw

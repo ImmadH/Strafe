@@ -1,0 +1,3 @@
+/home/immad/projects/Strafe/build/CMakeFiles/Strafe.dir
+/home/immad/projects/Strafe/build/CMakeFiles/edit_cache.dir
+/home/immad/projects/Strafe/build/CMakeFiles/rebuild_cache.dir
