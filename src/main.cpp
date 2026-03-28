@@ -7,5 +7,7 @@ int main()
     return -1;
 
   App::mainLoop();
+  App::cleanup();
+  
   return 0;
 }

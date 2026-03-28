@@ -1,12 +1,13 @@
 #include "app.h"
-#include "glfw.h"
+#include "instance.h"
 #include <GLFW/glfw3.h>
 #include <iostream>
 namespace App
 {
+
   bool Init()
   {
-    if(!App::GLFW::Init())
+    if(!App::Instance::Init())
     {
       std::cout << "Failed to init window\n";
       return false;
@@ -16,9 +17,14 @@ namespace App
 
   void mainLoop()
   {
-    while (!glfwWindowShouldClose(App::GLFW::GetWindowPointer()))
+    while (!glfwWindowShouldClose(App::Instance::GetWindowPointer()))
     {
       glfwPollEvents();
     }
+  }
+
+  void cleanup()
+  {
+    App::Instance::Destroy();
   }
 }
