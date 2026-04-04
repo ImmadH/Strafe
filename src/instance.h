@@ -1,6 +1,6 @@
 #pragma once
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-#include <vulkan/vulkan.h>
 
 //GLFW Init + Vulkan Instance creation 
 namespace App::Instance 
@@ -9,9 +9,8 @@ namespace App::Instance
   void Destroy();
   bool createInstance();
   GLFWwindow* GetWindowPointer();
+  VkInstance GetVulkanInstance();
   
-
-
 
   //Validation utility 
   bool checkValidationSupport();

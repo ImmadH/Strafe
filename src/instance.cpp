@@ -6,25 +6,23 @@
 
 namespace App::Instance
 {
-  namespace
-  {
-    constexpr uint32_t kWidth = 800;
-    constexpr uint32_t kHeight = 600;
 
-    const std::vector<const char*> kValidationLayers = {
-      "VK_LAYER_KHRONOS_validation"
-    };
+  constexpr uint32_t Width = 800;
+  constexpr uint32_t Height = 600;
 
-#ifdef NDEBUG
-    constexpr bool kEnableValidationLayers = false;
-#else
-    constexpr bool kEnableValidationLayers = true;
-#endif
+  const std::vector<const char*> kValidationLayers = {
+     "VK_LAYER_KHRONOS_validation"
+  };
 
-    GLFWwindow* window = nullptr;
-    VkInstance instance = VK_NULL_HANDLE;
-    VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
-  }
+  #ifdef NDEBUG
+      constexpr bool kEnableValidationLayers = false;
+  #else
+      constexpr bool kEnableValidationLayers = true;
+  #endif
+
+  GLFWwindow* window = nullptr;
+  VkInstance instance = VK_NULL_HANDLE;
+  VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
 
   VkResult CreateDebugUtilsMessengerEXT(
     VkInstance instanceHandle,
@@ -74,7 +72,7 @@ namespace App::Instance
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-    window = glfwCreateWindow(kWidth, kHeight, "Strafe", nullptr, nullptr);
+    window = glfwCreateWindow(Width, Height, "Strafe", nullptr, nullptr);
     if (window == nullptr)
     {
       std::cout << "Failed to create GLFW window\n";
@@ -230,6 +228,11 @@ namespace App::Instance
   GLFWwindow* GetWindowPointer()
   {
     return window;
+  }
+
+  VkInstance GetVulkanInstance()
+  {
+    return App::Instance::instance;
   }
 
   void Destroy()

@@ -1,8 +1,9 @@
 #pragma once
+#include <vulkan/vulkan.h>
 
 namespace VulkanDevice
 {
-    void Create();
+    bool Create();
     void Destroy();
 }
 

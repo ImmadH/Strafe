@@ -1,2 +1,2 @@
 # Strafe
-A Game Engine
+A Game Engine (Vulkan Backend)

@@ -1,7 +1,12 @@
 #include "app.h"
 #include "instance.h"
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <iostream>
+
+#include "device.h"
+
+//all glfw and application related 
 namespace App
 {
 
@@ -12,6 +17,17 @@ namespace App
       std::cout << "Failed to init window\n";
       return false;
     }
+
+
+    //BEFORE WRITING VulkanBackend:: gonna test
+
+    if (!VulkanDevice::Create())
+    {
+      std::cout << "Failed to create vulkan device\n";
+      return false;
+    }
+
+
     return true;
   }
 
@@ -23,8 +39,21 @@ namespace App
     }
   }
 
+  bool CreateSurface(void* surface) 
+  {
+      VkInstance instance = App::Instance::GetVulkanInstance();
+      if (glfwCreateWindowSurface(instance, App::Instance::GetWindowPointer(), nullptr, static_cast<VkSurfaceKHR*>(surface)) != VK_SUCCESS) 
+      {
+          return false;
+      }
+    return true;
+  }
+
+
   void cleanup()
   {
+    VulkanDevice::Destroy();
     App::Instance::Destroy();
   }
+
 }
