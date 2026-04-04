@@ -5,6 +5,11 @@ namespace VulkanDevice
 {
     bool Create();
     void Destroy();
+    VkPhysicalDevice GetPhysicalDevice();
+    VkDevice GetDevice();
+    VkSurfaceKHR GetSurface();
+    uint32_t GetGraphicsQueueFamilyIndex();
+    uint32_t GetPresentQueueFamilyIndex();
 }
 
 

@@ -5,6 +5,7 @@
 #include <iostream>
 
 #include "device.h"
+#include "swapchain.h"
 
 //all glfw and application related 
 namespace App
@@ -24,6 +25,12 @@ namespace App
     if (!VulkanDevice::Create())
     {
       std::cout << "Failed to create vulkan device\n";
+      return false;
+    }
+
+    if (!VulkanSwapchain::Create())
+    {
+      std::cout << "Failed to create vulkan swapchain\n";
       return false;
     }
 
@@ -52,6 +59,7 @@ namespace App
 
   void cleanup()
   {
+    VulkanSwapchain::Destroy();
     VulkanDevice::Destroy();
     App::Instance::Destroy();
   }

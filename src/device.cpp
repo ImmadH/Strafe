@@ -1,7 +1,8 @@
 #include "device.h"
-#include <vector>
+#include <optional>
+#include <set>
 #include <iostream>
-#include "device.h"
+#include <vector>
 #include "app.h"
 #include "instance.h"
 
@@ -12,8 +13,19 @@
 
 namespace VulkanDevice
 {
+    struct QueueFamilyIndices
+    {
+        std::optional<uint32_t> graphicsFamily;
+        std::optional<uint32_t> presentFamily;
+
+        bool IsComplete() const
+        {
+            return graphicsFamily.has_value() && presentFamily.has_value();
+        }
+    };
 
     uint32_t graphicsQueueFamilyIndex = 0;
+    uint32_t presentQueueFamilyIndex = 0;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -23,26 +35,76 @@ namespace VulkanDevice
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
 
+    bool CheckDeviceExtensionSupport(VkPhysicalDevice device)
+    {
+        uint32_t extensionCount = 0;
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
 
-    bool IsDeviceSuitable(VkPhysicalDevice device) {
+        std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+
+        std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
+
+        for (const VkExtensionProperties& extension : availableExtensions)
+        {
+            requiredExtensions.erase(extension.extensionName);
+        }
+
+        return requiredExtensions.empty();
+    }
+
+    QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice device)
+    {
+        QueueFamilyIndices indices{};
         uint32_t queueFamilyCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
 
         std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
 
-        for (uint32_t i = 0; i < queueFamilyCount; i++) {
-            VkBool32 presentSupport = VK_FALSE;
-            if (vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport) != VK_SUCCESS) {
-                continue;
+        int i = 0;
+        for (const VkQueueFamilyProperties& queueFamily : queueFamilies)
+        {
+            if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            {
+                indices.graphicsFamily = i;
             }
 
-            if ((queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && presentSupport) {
-                graphicsQueueFamilyIndex = i;
-                return true;
+            VkBool32 presentSupport = VK_FALSE;
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+
+            if (presentSupport)
+            {
+                indices.presentFamily = i;
             }
+
+            if (indices.IsComplete())
+            {
+                break;
+            }
+
+            i++;
         }
-        return false;
+
+        return indices;
+    }
+
+    bool IsDeviceSuitable(VkPhysicalDevice device)
+    {
+        const QueueFamilyIndices indices = FindQueueFamilies(device);
+        if (!indices.IsComplete())
+        {
+            return false;
+        }
+
+        if (!CheckDeviceExtensionSupport(device))
+        {
+            return false;
+        }
+
+        graphicsQueueFamilyIndex = indices.graphicsFamily.value();
+        presentQueueFamilyIndex = indices.presentFamily.value();
+        return true;
     }
 
     bool PickPhysicalDevice() 
@@ -72,18 +134,31 @@ namespace VulkanDevice
 
     bool CreateLogicalDevice()
     {
-        //float to assign priorities to queues to influence the scheduling of command buffer execution 
+        const std::set<uint32_t> uniqueQueueFamilies = {
+            graphicsQueueFamilyIndex,
+            presentQueueFamilyIndex
+        };
+
         float queuePriority = 1.0f;
-        VkDeviceQueueCreateInfo queueInfo{};
-        queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
-        queueInfo.queueCount = 1;
-        queueInfo.pQueuePriorities = &queuePriority;
+        std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+
+        for (uint32_t queueFamily : uniqueQueueFamilies)
+        {
+            VkDeviceQueueCreateInfo queueInfo{};
+            queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queueInfo.queueFamilyIndex = queueFamily;
+            queueInfo.queueCount = 1;
+            queueInfo.pQueuePriorities = &queuePriority;
+            queueCreateInfos.push_back(queueInfo);
+        }
+
+        VkPhysicalDeviceFeatures deviceFeatures{};
 
         VkDeviceCreateInfo deviceInfo{};
         deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        deviceInfo.queueCreateInfoCount = 1;
-        deviceInfo.pQueueCreateInfos = &queueInfo;
+        deviceInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
+        deviceInfo.pQueueCreateInfos = queueCreateInfos.data();
+        deviceInfo.pEnabledFeatures = &deviceFeatures;
         deviceInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
         deviceInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
@@ -131,5 +206,30 @@ namespace VulkanDevice
             vkDestroySurfaceKHR(instance, surface, nullptr);
             surface = VK_NULL_HANDLE;
         }
+    }
+
+    VkDevice GetDevice()
+    {
+        return device;
+    }
+
+    VkPhysicalDevice GetPhysicalDevice()
+    {
+        return physicalDevice;
+    }
+
+    VkSurfaceKHR GetSurface()
+    {
+        return surface;
+    }
+
+    uint32_t GetGraphicsQueueFamilyIndex()
+    {
+        return graphicsQueueFamilyIndex;
+    }
+
+    uint32_t GetPresentQueueFamilyIndex()
+    {
+        return presentQueueFamilyIndex;
     }
 }
