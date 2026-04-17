@@ -10,6 +10,7 @@ namespace VulkanDevice
     VkSurfaceKHR GetSurface();
     uint32_t GetGraphicsQueueFamilyIndex();
     uint32_t GetPresentQueueFamilyIndex();
+    VkQueue GetGraphicsQueue();
 }
 
 

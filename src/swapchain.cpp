@@ -146,6 +146,26 @@ namespace VulkanSwapchain
 		return swapChainImageFormat;
 	}
 
+	VkExtent2D GetSwapChainExtent()
+	{
+		return swapChainExtent;
+	}
+
+	std::vector<VkImageView> GetSwapChainImageViews()
+	{
+		return swapChainImageViews;
+	}
+
+	VkSwapchainKHR GetSwapChain()
+	{
+		return swapChain;
+	}
+
+	uint32_t GetSwapChainImageCount()
+	{
+		return static_cast<uint32_t>(swapChainImages.size());
+	}
+
     bool Create()
     {
         const VkDevice device = VulkanDevice::GetDevice();

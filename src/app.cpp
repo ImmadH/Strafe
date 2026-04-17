@@ -3,25 +3,52 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <stdexcept>
 
 #include "device.h"
 #include "swapchain.h"
 #include "pipeline.h"
+#include "commands.h"
+#include "sync.h"
 
-//all glfw and application related 
 namespace App
 {
-	
+  static bool framebufferResized = false;
+  static uint32_t currentFrame = 0;
+  static uint32_t acquireSemaphoreIndex = 0;
+
+  static void FramebufferResizeCallback(GLFWwindow*, int, int)
+  {
+    framebufferResized = true;
+  }
+
+  void RecreateSwapChain()
+  {
+    // Wait out minimization
+    int width = 0, height = 0;
+    while (width == 0 || height == 0)
+    {
+      glfwGetFramebufferSize(App::Instance::GetWindowPointer(), &width, &height);
+      glfwWaitEvents();
+    }
+
+    vkDeviceWaitIdle(VulkanDevice::GetDevice());
+
+    VulkanPipeline::RecreateFramebuffers();  // destroys old framebuffers
+    VulkanSwapchain::Destroy();              // destroys image views + swapchain
+    VulkanSwapchain::Create();               // recreates swapchain + image views
+    VulkanPipeline::RecreateFramebuffers();  // recreates framebuffers with new image views
+  }
+
   bool Init()
   {
-    if(!App::Instance::Init())
+    if (!App::Instance::Init())
     {
       std::cout << "Failed to init window\n";
       return false;
     }
 
-
-    //BEFORE WRITING VulkanBackend:: gonna test
+    glfwSetFramebufferSizeCallback(App::Instance::GetWindowPointer(), FramebufferResizeCallback);
 
     if (!VulkanDevice::Create())
     {
@@ -41,7 +68,91 @@ namespace App
       return false;
     }
 
+    if (!VulkanCommands::Create())
+    {
+      std::cout << "Failed to create command buffers\n";
+      return false;
+    }
+
+    if (!VulkanSynchronization::Create())
+    {
+      std::cout << "Failed to create sync objects\n";
+      return false;
+    }
+
     return true;
+  }
+
+  void DrawFrame()
+  {
+    VkDevice device = VulkanDevice::GetDevice();
+    VkFence inFlightFence = VulkanSynchronization::GetInFlightFence(currentFrame);
+    VkSemaphore imageAvailable = VulkanSynchronization::GetImageAvailableSemaphore(acquireSemaphoreIndex);
+    VkCommandBuffer commandBuffer = VulkanCommands::GetCommandBuffer(currentFrame);
+
+    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+
+    uint32_t imageIndex;
+    VkResult result = vkAcquireNextImageKHR(device, VulkanSwapchain::GetSwapChain(), UINT64_MAX, imageAvailable, VK_NULL_HANDLE, &imageIndex);
+
+    VkSemaphore renderFinished = VulkanSynchronization::GetRenderFinishedSemaphore(imageIndex);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+      RecreateSwapChain();
+      return;
+    }
+    else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+    {
+      throw std::runtime_error("Failed to acquire swapchain image");
+    }
+
+    vkResetFences(device, 1, &inFlightFence);
+
+    vkResetCommandBuffer(commandBuffer, 0);
+    VulkanCommands::RecordCommandBuffer(imageIndex, currentFrame);
+
+    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = &imageAvailable;
+    submitInfo.pWaitDstStageMask = &waitStage;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &renderFinished;
+
+    if (vkQueueSubmit(VulkanDevice::GetGraphicsQueue(), 1, &submitInfo, inFlightFence) != VK_SUCCESS)
+    {
+      throw std::runtime_error("Failed to submit draw command buffer");
+    }
+
+    VkSwapchainKHR swapChain = VulkanSwapchain::GetSwapChain();
+
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = &renderFinished;
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &swapChain;
+    presentInfo.pImageIndices = &imageIndex;
+
+    result = vkQueuePresentKHR(VulkanDevice::GetGraphicsQueue(), &presentInfo);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized)
+    {
+      framebufferResized = false;
+      RecreateSwapChain();
+    }
+    else if (result != VK_SUCCESS)
+    {
+      throw std::runtime_error("Failed to present swapchain image");
+    }
+
+    currentFrame = (currentFrame + 1) % VulkanSynchronization::MAX_FRAMES_IN_FLIGHT;
+    acquireSemaphoreIndex = (acquireSemaphoreIndex + 1) % VulkanSwapchain::GetSwapChainImageCount();
   }
 
   void mainLoop()
@@ -49,26 +160,29 @@ namespace App
     while (!glfwWindowShouldClose(App::Instance::GetWindowPointer()))
     {
       glfwPollEvents();
+      DrawFrame();
     }
+
+    vkDeviceWaitIdle(VulkanDevice::GetDevice());
   }
 
-  bool CreateSurface(void* surface) 
+  bool CreateSurface(void* surface)
   {
-      VkInstance instance = App::Instance::GetVulkanInstance();
-      if (glfwCreateWindowSurface(instance, App::Instance::GetWindowPointer(), nullptr, static_cast<VkSurfaceKHR*>(surface)) != VK_SUCCESS) 
-      {
-          return false;
-      }
+    VkInstance instance = App::Instance::GetVulkanInstance();
+    if (glfwCreateWindowSurface(instance, App::Instance::GetWindowPointer(), nullptr, static_cast<VkSurfaceKHR*>(surface)) != VK_SUCCESS)
+    {
+      return false;
+    }
     return true;
   }
 
-
   void cleanup()
   {
-	VulkanPipeline::Destroy();
+    VulkanSynchronization::Destroy();
+    VulkanCommands::Destroy();
+    VulkanPipeline::Destroy();
     VulkanSwapchain::Destroy();
     VulkanDevice::Destroy();
     App::Instance::Destroy();
   }
-
 }

@@ -28,6 +28,7 @@ namespace VulkanDevice
     uint32_t presentQueueFamilyIndex = 0;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
+    VkQueue graphicsQueue = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     
     std::vector<const char*> deviceExtensions = 
@@ -167,7 +168,9 @@ namespace VulkanDevice
             std::cerr << "Failed to create logical device\n";
             return false;
         }
-        
+
+        vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
+
         return true;
     }
     
@@ -231,5 +234,10 @@ namespace VulkanDevice
     uint32_t GetPresentQueueFamilyIndex()
     {
         return presentQueueFamilyIndex;
+    }
+
+    VkQueue GetGraphicsQueue()
+    {
+        return graphicsQueue;
     }
 }

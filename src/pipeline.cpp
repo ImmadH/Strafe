@@ -5,11 +5,15 @@
 #include <string>
 #include <ios>
 #include <fstream>
+
+//shader modules, pipeline, renderpass, and frame buffers
+
 namespace VulkanPipeline
 {
 	VkRenderPass renderPass = VK_NULL_HANDLE;
 	VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
 	VkPipeline graphicsPipeline = VK_NULL_HANDLE;
+	std::vector<VkFramebuffer> swapChainFramebuffers;
 
 	static std::vector<char> ReadFile(const std::string& fileName)
 	{
@@ -86,6 +90,35 @@ namespace VulkanPipeline
 		if (vkCreateRenderPass(VulkanDevice::GetDevice(), &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS)
 		{
 			throw std::runtime_error("Failed to create render pass");
+		}
+
+		return true;
+	}
+
+	bool CreateFramebuffers()
+	{
+		std::vector<VkImageView> swapChainImageViews = VulkanSwapchain::GetSwapChainImageViews();
+		VkExtent2D swapChainExtent = VulkanSwapchain::GetSwapChainExtent();
+
+		swapChainFramebuffers.resize(swapChainImageViews.size());
+
+		for (size_t i = 0; i < swapChainImageViews.size(); i++)
+		{
+			VkImageView attachments[] = { swapChainImageViews[i] };
+
+			VkFramebufferCreateInfo framebufferInfo{};
+			framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			framebufferInfo.renderPass = renderPass;
+			framebufferInfo.attachmentCount = 1;
+			framebufferInfo.pAttachments = attachments;
+			framebufferInfo.width = swapChainExtent.width;
+			framebufferInfo.height = swapChainExtent.height;
+			framebufferInfo.layers = 1;
+
+			if (vkCreateFramebuffer(VulkanDevice::GetDevice(), &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS)
+			{
+				throw std::runtime_error("Failed to create framebuffer");
+			}
 		}
 
 		return true;
@@ -201,13 +234,47 @@ namespace VulkanPipeline
 		vkDestroyShaderModule(VulkanDevice::GetDevice(), fragShaderModule, nullptr);
 		vkDestroyShaderModule(VulkanDevice::GetDevice(), vertShaderModule, nullptr);
 
+		CreateFramebuffers();
+
 		return true;
+	}
+
+	void RecreateFramebuffers()
+	{
+		VkDevice device = VulkanDevice::GetDevice();
+		for (VkFramebuffer fb : swapChainFramebuffers)
+			vkDestroyFramebuffer(device, fb, nullptr);
+		swapChainFramebuffers.clear();
+		CreateFramebuffers();
+	}
+
+	VkRenderPass GetRenderPass()
+	{
+		return renderPass;
+	}
+
+	VkPipeline GetGraphicsPipeline()
+	{
+		return graphicsPipeline;
+	}
+
+	std::vector<VkFramebuffer> GetFramebuffers()
+	{
+		return swapChainFramebuffers;
 	}
 
 	void Destroy()
 	{
-		vkDestroyPipeline(VulkanDevice::GetDevice(), graphicsPipeline, nullptr);
-		vkDestroyPipelineLayout(VulkanDevice::GetDevice(), pipelineLayout, nullptr);
-		vkDestroyRenderPass(VulkanDevice::GetDevice(), renderPass, nullptr);
+		const VkDevice device = VulkanDevice::GetDevice();
+
+		for (VkFramebuffer framebuffer : swapChainFramebuffers)
+		{
+			vkDestroyFramebuffer(device, framebuffer, nullptr);
+		}
+		swapChainFramebuffers.clear();
+
+		vkDestroyPipeline(device, graphicsPipeline, nullptr);
+		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+		vkDestroyRenderPass(device, renderPass, nullptr);
 	}
 }
