@@ -6,4 +6,6 @@ namespace VulkanSwapchain
 {
     bool Create();
     void Destroy();
+
+	VkFormat GetSwapChainImageFormat();
 }

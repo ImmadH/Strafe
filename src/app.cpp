@@ -6,11 +6,12 @@
 
 #include "device.h"
 #include "swapchain.h"
+#include "pipeline.h"
 
 //all glfw and application related 
 namespace App
 {
-
+	
   bool Init()
   {
     if(!App::Instance::Init())
@@ -34,6 +35,11 @@ namespace App
       return false;
     }
 
+    if (!VulkanPipeline::Create())
+    {
+      std::cout << "Failed to create graphics pipeline\n";
+      return false;
+    }
 
     return true;
   }
@@ -59,6 +65,7 @@ namespace App
 
   void cleanup()
   {
+	VulkanPipeline::Destroy();
     VulkanSwapchain::Destroy();
     VulkanDevice::Destroy();
     App::Instance::Destroy();

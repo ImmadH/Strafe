@@ -107,7 +107,7 @@ namespace VulkanSwapchain
             return actualExtent;
         }
     }
-
+	
     bool CreateImageViews()
     {
         const VkDevice device = VulkanDevice::GetDevice();
@@ -139,6 +139,12 @@ namespace VulkanSwapchain
 
         return true;
     }
+
+
+	VkFormat GetSwapChainImageFormat()
+	{
+		return swapChainImageFormat;
+	}
 
     bool Create()
     {
@@ -236,3 +242,4 @@ namespace VulkanSwapchain
         }
     }
 }
+

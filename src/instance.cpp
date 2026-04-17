@@ -113,7 +113,7 @@ namespace App::Instance
       std::cout << "Failed to query GLFW Vulkan extensions\n";
       return false;
     }
-
+	
     std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
 
     if (kEnableValidationLayers)

@@ -5,5 +5,6 @@ namespace App
   void mainLoop();
   void cleanup();
 
+
   bool CreateSurface(void* surface);
 }
