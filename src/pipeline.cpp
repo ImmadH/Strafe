@@ -17,6 +17,58 @@ namespace VulkanPipeline
 	VkPipeline graphicsPipeline = VK_NULL_HANDLE;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 
+	static VkImage       depthImage      = VK_NULL_HANDLE;
+	static VkImageView   depthImageView  = VK_NULL_HANDLE;
+	static VmaAllocation depthAllocation = VK_NULL_HANDLE;
+
+	static bool CreateDepthResources()
+	{
+		VkExtent2D   extent    = VulkanSwapchain::GetSwapChainExtent();
+		VmaAllocator allocator = VulkanDevice::GetAllocator();
+		VkDevice     device    = VulkanDevice::GetDevice();
+
+		VkImageCreateInfo imageInfo{};
+		imageInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		imageInfo.imageType     = VK_IMAGE_TYPE_2D;
+		imageInfo.extent        = { extent.width, extent.height, 1 };
+		imageInfo.mipLevels     = 1;
+		imageInfo.arrayLayers   = 1;
+		imageInfo.format        = VK_FORMAT_D32_SFLOAT;
+		imageInfo.tiling        = VK_IMAGE_TILING_OPTIMAL;
+		imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		imageInfo.usage         = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+		imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
+		imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo allocInfo{};
+		allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+		if (vmaCreateImage(allocator, &imageInfo, &allocInfo, &depthImage, &depthAllocation, nullptr) != VK_SUCCESS)
+			return false;
+
+		VkImageViewCreateInfo viewInfo{};
+		viewInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		viewInfo.image                           = depthImage;
+		viewInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
+		viewInfo.format                          = VK_FORMAT_D32_SFLOAT;
+		viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT;
+		viewInfo.subresourceRange.baseMipLevel   = 0;
+		viewInfo.subresourceRange.levelCount     = 1;
+		viewInfo.subresourceRange.baseArrayLayer = 0;
+		viewInfo.subresourceRange.layerCount     = 1;
+
+		return vkCreateImageView(device, &viewInfo, nullptr, &depthImageView) == VK_SUCCESS;
+	}
+
+	static void DestroyDepthResources()
+	{
+		vkDestroyImageView(VulkanDevice::GetDevice(), depthImageView, nullptr);
+		vmaDestroyImage(VulkanDevice::GetAllocator(), depthImage, depthAllocation);
+		depthImageView  = VK_NULL_HANDLE;
+		depthImage      = VK_NULL_HANDLE;
+		depthAllocation = VK_NULL_HANDLE;
+	}
+
 	static std::vector<char> ReadFile(const std::string& fileName)
 	{
 		std::ifstream file(fileName, std::ios::ate | std::ios::binary);
@@ -54,45 +106,60 @@ namespace VulkanPipeline
 	bool CreateRenderPass()
 	{
 		VkAttachmentDescription colorAttachment{};
-		colorAttachment.format = VulkanSwapchain::GetSwapChainImageFormat();
-		colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		colorAttachment.format         = VulkanSwapchain::GetSwapChainImageFormat();
+		colorAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+		colorAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		colorAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+		colorAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		colorAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+		colorAttachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+		VkAttachmentDescription depthAttachment{};
+		depthAttachment.format         = VK_FORMAT_D32_SFLOAT;
+		depthAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+		depthAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		depthAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		depthAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		depthAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+		depthAttachment.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 		VkAttachmentReference colorAttachmentRef{};
 		colorAttachmentRef.attachment = 0;
-		colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		colorAttachmentRef.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+		VkAttachmentReference depthAttachmentRef{};
+		depthAttachmentRef.attachment = 1;
+		depthAttachmentRef.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 		VkSubpassDescription subpass{};
-		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-		subpass.colorAttachmentCount = 1;
-		subpass.pColorAttachments = &colorAttachmentRef;
+		subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpass.colorAttachmentCount    = 1;
+		subpass.pColorAttachments       = &colorAttachmentRef;
+		subpass.pDepthStencilAttachment = &depthAttachmentRef;
 
 		VkSubpassDependency dependency{};
-		dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-		dependency.dstSubpass = 0;
-		dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependency.srcSubpass    = VK_SUBPASS_EXTERNAL;
+		dependency.dstSubpass    = 0;
+		dependency.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 		dependency.srcAccessMask = 0;
-		dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+		dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+		VkAttachmentDescription attachments[] = { colorAttachment, depthAttachment };
 
 		VkRenderPassCreateInfo renderPassInfo{};
-		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-		renderPassInfo.attachmentCount = 1;
-		renderPassInfo.pAttachments = &colorAttachment;
-		renderPassInfo.subpassCount = 1;
-		renderPassInfo.pSubpasses = &subpass;
+		renderPassInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		renderPassInfo.attachmentCount = 2;
+		renderPassInfo.pAttachments    = attachments;
+		renderPassInfo.subpassCount    = 1;
+		renderPassInfo.pSubpasses      = &subpass;
 		renderPassInfo.dependencyCount = 1;
-		renderPassInfo.pDependencies = &dependency;
+		renderPassInfo.pDependencies   = &dependency;
 
 		if (vkCreateRenderPass(VulkanDevice::GetDevice(), &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS)
-		{
 			throw std::runtime_error("Failed to create render pass");
-		}
 
 		return true;
 	}
@@ -106,21 +173,19 @@ namespace VulkanPipeline
 
 		for (size_t i = 0; i < swapChainImageViews.size(); i++)
 		{
-			VkImageView attachments[] = { swapChainImageViews[i] };
+			VkImageView attachments[] = { swapChainImageViews[i], depthImageView };
 
 			VkFramebufferCreateInfo framebufferInfo{};
-			framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-			framebufferInfo.renderPass = renderPass;
-			framebufferInfo.attachmentCount = 1;
-			framebufferInfo.pAttachments = attachments;
-			framebufferInfo.width = swapChainExtent.width;
-			framebufferInfo.height = swapChainExtent.height;
-			framebufferInfo.layers = 1;
+			framebufferInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			framebufferInfo.renderPass      = renderPass;
+			framebufferInfo.attachmentCount = 2;
+			framebufferInfo.pAttachments    = attachments;
+			framebufferInfo.width           = swapChainExtent.width;
+			framebufferInfo.height          = swapChainExtent.height;
+			framebufferInfo.layers          = 1;
 
 			if (vkCreateFramebuffer(VulkanDevice::GetDevice(), &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS)
-			{
 				throw std::runtime_error("Failed to create framebuffer");
-			}
 		}
 
 		return true;
@@ -185,6 +250,14 @@ namespace VulkanPipeline
 		multisampling.sampleShadingEnable = VK_FALSE;
 		multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
+		VkPipelineDepthStencilStateCreateInfo depthStencil{};
+		depthStencil.sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+		depthStencil.depthTestEnable       = VK_TRUE;
+		depthStencil.depthWriteEnable      = VK_TRUE;
+		depthStencil.depthCompareOp        = VK_COMPARE_OP_LESS;
+		depthStencil.depthBoundsTestEnable = VK_FALSE;
+		depthStencil.stencilTestEnable     = VK_FALSE;
+
 		VkPipelineColorBlendAttachmentState colorBlendAttachment{};
 		colorBlendAttachment.colorWriteMask =
 			VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
@@ -235,8 +308,9 @@ namespace VulkanPipeline
 		pipelineInfo.pViewportState = &viewportState;
 		pipelineInfo.pRasterizationState = &rasterizer;
 		pipelineInfo.pMultisampleState = &multisampling;
-		pipelineInfo.pColorBlendState = &colorBlending;
-		pipelineInfo.pDynamicState = &dynamicState;
+		pipelineInfo.pColorBlendState    = &colorBlending;
+		pipelineInfo.pDepthStencilState  = &depthStencil;
+		pipelineInfo.pDynamicState       = &dynamicState;
 		pipelineInfo.layout = pipelineLayout;
 		pipelineInfo.renderPass = renderPass;
 		pipelineInfo.subpass = 0;
@@ -250,6 +324,9 @@ namespace VulkanPipeline
 		vkDestroyShaderModule(VulkanDevice::GetDevice(), fragShaderModule, nullptr);
 		vkDestroyShaderModule(VulkanDevice::GetDevice(), vertShaderModule, nullptr);
 
+		if (!CreateDepthResources())
+			throw std::runtime_error("Failed to create depth resources");
+
 		CreateFramebuffers();
 
 		return true;
@@ -261,6 +338,8 @@ namespace VulkanPipeline
 		for (VkFramebuffer fb : swapChainFramebuffers)
 			vkDestroyFramebuffer(device, fb, nullptr);
 		swapChainFramebuffers.clear();
+		DestroyDepthResources();
+		CreateDepthResources();
 		CreateFramebuffers();
 	}
 
@@ -294,6 +373,7 @@ namespace VulkanPipeline
 		}
 		swapChainFramebuffers.clear();
 
+		DestroyDepthResources();
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyRenderPass(device, renderPass, nullptr);

@@ -25,9 +25,30 @@ namespace App
   static double lastMouseX  = 0.0;
   static double lastMouseY  = 0.0;
   static bool   firstMouse  = true;
+  static bool   cursorLocked = true;
+
+  static void KeyCallback(GLFWwindow* window, int key, int, int action, int)
+  {
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+      glfwSetWindowShouldClose(window, GLFW_TRUE);
+
+    if (key == GLFW_KEY_F1 && action == GLFW_PRESS)
+    {
+      cursorLocked = !cursorLocked;
+      firstMouse = true;
+      glfwSetInputMode(window, GLFW_CURSOR,
+        cursorLocked ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    }
+  }
 
   static void MouseCallback(GLFWwindow*, double x, double y)
   {
+    if (!cursorLocked)
+    {
+      lastMouseX = x;
+      lastMouseY = y;
+      return;
+    }
     if (firstMouse)
     {
       lastMouseX = x;
@@ -75,6 +96,7 @@ namespace App
 
     GLFWwindow* window = App::Instance::GetWindowPointer();
     glfwSetFramebufferSizeCallback(window, FramebufferResizeCallback);
+    glfwSetKeyCallback(window, KeyCallback);
     glfwSetCursorPosCallback(window, MouseCallback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
@@ -135,7 +157,8 @@ namespace App
     float dt   = static_cast<float>(now - lastTime);
     lastTime   = now;
 
-    Camera::ProcessKeyboard(App::Instance::GetWindowPointer(), dt);
+    if (cursorLocked)
+      Camera::ProcessKeyboard(App::Instance::GetWindowPointer(), dt);
 
     VkDevice device = VulkanDevice::GetDevice();
     VkFence inFlightFence = VulkanSynchronization::GetInFlightFence(currentFrame);
@@ -217,8 +240,6 @@ namespace App
     while (!glfwWindowShouldClose(window))
     {
       glfwPollEvents();
-      if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, GLFW_TRUE);
       DrawFrame();
     }
 
