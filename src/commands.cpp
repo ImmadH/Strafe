@@ -3,6 +3,9 @@
 #include "pipeline.h"
 #include "swapchain.h"
 #include "sync.h"
+#include "app.h"
+#include "camera.h"
+#include <glm/glm.hpp>
 #include <stdexcept>
 #include <array>
 
@@ -76,6 +79,18 @@ namespace VulkanCommands
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline::GetGraphicsPipeline());
 
+        VkDescriptorSet ds = Camera::GetDescriptorSet(frameIndex);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            VulkanPipeline::GetPipelineLayout(), 0, 1, &ds, 0, nullptr);
+
+        glm::mat4 model = glm::mat4(1.0f);
+        vkCmdPushConstants(cmd, VulkanPipeline::GetPipelineLayout(),
+            VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &model);
+
+        Mesh& mesh = App::GetTriangleMesh();
+        VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
+
         VkExtent2D extent = VulkanSwapchain::GetSwapChainExtent();
 
         VkViewport viewport{};
@@ -92,7 +107,7 @@ namespace VulkanCommands
         scissor.extent = extent;
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdDraw(cmd, App::GetTriangleMesh().vertexCount, 1, 0, 0);
 
         vkCmdEndRenderPass(cmd);
 

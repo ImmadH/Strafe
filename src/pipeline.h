@@ -9,7 +9,8 @@ namespace VulkanPipeline
     void Destroy();
     void RecreateFramebuffers();
 
-    VkRenderPass GetRenderPass();
-    VkPipeline GetGraphicsPipeline();
+    VkRenderPass     GetRenderPass();
+    VkPipeline       GetGraphicsPipeline();
+    VkPipelineLayout GetPipelineLayout();
     std::vector<VkFramebuffer> GetFramebuffers();
 }

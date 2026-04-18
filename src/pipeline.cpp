@@ -1,6 +1,8 @@
 #include "pipeline.h"
 #include "device.h"
 #include "swapchain.h"
+#include "mesh.h"
+#include "camera.h"
 #include <vector>
 #include <string>
 #include <ios>
@@ -148,10 +150,15 @@ namespace VulkanPipeline
 
 		VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
+		auto binding    = Vertex::GetBindingDescription();
+		auto attributes = Vertex::GetAttributeDescriptions();
+
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-		vertexInputInfo.vertexBindingDescriptionCount = 0;
-		vertexInputInfo.vertexAttributeDescriptionCount = 0;
+		vertexInputInfo.vertexBindingDescriptionCount   = 1;
+		vertexInputInfo.pVertexBindingDescriptions      = &binding;
+		vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributes.size());
+		vertexInputInfo.pVertexAttributeDescriptions    = attributes.data();
 
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
 		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -169,7 +176,7 @@ namespace VulkanPipeline
 		rasterizer.rasterizerDiscardEnable = VK_FALSE;
 		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 		rasterizer.lineWidth = 1.0f;
-		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+		rasterizer.cullMode = VK_CULL_MODE_NONE;
 		rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
 		rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -200,10 +207,19 @@ namespace VulkanPipeline
 		dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
 		dynamicState.pDynamicStates = dynamicStates.data();
 
+		VkDescriptorSetLayout cameraLayout = Camera::GetDescriptorSetLayout();
+
+		VkPushConstantRange pushConstant{};
+		pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+		pushConstant.offset     = 0;
+		pushConstant.size       = sizeof(float) * 16; // mat4
+
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 0;
-		pipelineLayoutInfo.pushConstantRangeCount = 0;
+		pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipelineLayoutInfo.setLayoutCount         = 1;
+		pipelineLayoutInfo.pSetLayouts            = &cameraLayout;
+		pipelineLayoutInfo.pushConstantRangeCount = 1;
+		pipelineLayoutInfo.pPushConstantRanges    = &pushConstant;
 
 		if (vkCreatePipelineLayout(VulkanDevice::GetDevice(), &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
 		{
@@ -261,6 +277,11 @@ namespace VulkanPipeline
 	std::vector<VkFramebuffer> GetFramebuffers()
 	{
 		return swapChainFramebuffers;
+	}
+
+	VkPipelineLayout GetPipelineLayout()
+	{
+		return pipelineLayout;
 	}
 
 	void Destroy()

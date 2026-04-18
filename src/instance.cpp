@@ -7,8 +7,8 @@
 namespace App::Instance
 {
 
-  constexpr uint32_t Width = 800;
-  constexpr uint32_t Height = 600;
+  constexpr uint32_t Width = 1920;
+  constexpr uint32_t Height = 1080;
 
   const std::vector<const char*> kValidationLayers = {
      "VK_LAYER_KHRONOS_validation"

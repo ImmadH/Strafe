@@ -5,6 +5,7 @@
 #include <vector>
 #include "app.h"
 #include "instance.h"
+#include <vk_mem_alloc.h>
 
 //surface creation
 //physical device
@@ -30,6 +31,7 @@ namespace VulkanDevice
     VkDevice device = VK_NULL_HANDLE;
     VkQueue graphicsQueue = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
+    VmaAllocator allocator = VK_NULL_HANDLE;
     
     std::vector<const char*> deviceExtensions = 
     {
@@ -173,9 +175,24 @@ namespace VulkanDevice
 
         return true;
     }
-    
 
-    bool Create() // physical device, surface, logical device - instance was created by our app 
+    bool CreateAllocator()
+    {
+        VmaAllocatorCreateInfo allocatorInfo{};
+        allocatorInfo.instance       = App::Instance::GetVulkanInstance();
+        allocatorInfo.physicalDevice = physicalDevice;
+        allocatorInfo.device         = device;
+        allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_0;
+
+        if (vmaCreateAllocator(&allocatorInfo, &allocator) != VK_SUCCESS)
+        {
+            std::cerr << "Failed to create VMA allocator\n";
+            return false;
+        }
+        return true;
+    }
+
+    bool Create() // physical device, surface, logical device - instance was created by our app
     {   
         if (!App::CreateSurface(&surface))
         {
@@ -195,12 +212,22 @@ namespace VulkanDevice
             return false;
         }
 
+        if (!CreateAllocator())
+        {
+            std::cout << "Failed to create VMA allocator\n";
+            return false;
+        }
+
         return true;
     }
 
     void Destroy()
     {
         VkInstance instance = App::Instance::GetVulkanInstance();
+        if (allocator) {
+            vmaDestroyAllocator(allocator);
+            allocator = VK_NULL_HANDLE;
+        }
         if (device) {
             vkDestroyDevice(device, nullptr);
             device = VK_NULL_HANDLE;
@@ -239,5 +266,10 @@ namespace VulkanDevice
     VkQueue GetGraphicsQueue()
     {
         return graphicsQueue;
+    }
+
+    VmaAllocator GetAllocator()
+    {
+        return allocator;
     }
 }

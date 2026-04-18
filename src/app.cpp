@@ -10,12 +10,37 @@
 #include "pipeline.h"
 #include "commands.h"
 #include "sync.h"
+#include "mesh.h"
+#include "camera.h"
 
 namespace App
 {
   static bool framebufferResized = false;
   static uint32_t currentFrame = 0;
   static uint32_t acquireSemaphoreIndex = 0;
+  static Mesh triangleMesh;
+
+  Mesh& GetTriangleMesh() { return triangleMesh; }
+
+  static double lastMouseX  = 0.0;
+  static double lastMouseY  = 0.0;
+  static bool   firstMouse  = true;
+
+  static void MouseCallback(GLFWwindow*, double x, double y)
+  {
+    if (firstMouse)
+    {
+      lastMouseX = x;
+      lastMouseY = y;
+      firstMouse = false;
+      return;
+    }
+    float dx = static_cast<float>(x - lastMouseX);
+    float dy = static_cast<float>(lastMouseY - y); // y is flipped: up should increase pitch
+    lastMouseX = x;
+    lastMouseY = y;
+    Camera::ProcessMouse(dx, dy);
+  }
 
   static void FramebufferResizeCallback(GLFWwindow*, int, int)
   {
@@ -48,11 +73,20 @@ namespace App
       return false;
     }
 
-    glfwSetFramebufferSizeCallback(App::Instance::GetWindowPointer(), FramebufferResizeCallback);
+    GLFWwindow* window = App::Instance::GetWindowPointer();
+    glfwSetFramebufferSizeCallback(window, FramebufferResizeCallback);
+    glfwSetCursorPosCallback(window, MouseCallback);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     if (!VulkanDevice::Create())
     {
       std::cout << "Failed to create vulkan device\n";
+      return false;
+    }
+
+    if (!Camera::Create())
+    {
+      std::cout << "Failed to create camera\n";
       return false;
     }
 
@@ -80,17 +114,39 @@ namespace App
       return false;
     }
 
+    std::vector<Vertex> verts = {
+      {{ 0.0f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+      {{ 0.5f,  0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+      {{-0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+    };
+    if (!triangleMesh.Upload(verts))
+    {
+      std::cout << "Failed to upload triangle mesh\n";
+      return false;
+    }
+
     return true;
   }
 
   void DrawFrame()
   {
+    static double lastTime = glfwGetTime();
+    double now = glfwGetTime();
+    float dt   = static_cast<float>(now - lastTime);
+    lastTime   = now;
+
+    Camera::ProcessKeyboard(App::Instance::GetWindowPointer(), dt);
+
     VkDevice device = VulkanDevice::GetDevice();
     VkFence inFlightFence = VulkanSynchronization::GetInFlightFence(currentFrame);
     VkSemaphore imageAvailable = VulkanSynchronization::GetImageAvailableSemaphore(acquireSemaphoreIndex);
     VkCommandBuffer commandBuffer = VulkanCommands::GetCommandBuffer(currentFrame);
 
     vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+
+    VkExtent2D extent = VulkanSwapchain::GetSwapChainExtent();
+    float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+    Camera::UpdateUBO(currentFrame, aspect);
 
     uint32_t imageIndex;
     VkResult result = vkAcquireNextImageKHR(device, VulkanSwapchain::GetSwapChain(), UINT64_MAX, imageAvailable, VK_NULL_HANDLE, &imageIndex);
@@ -157,9 +213,12 @@ namespace App
 
   void mainLoop()
   {
-    while (!glfwWindowShouldClose(App::Instance::GetWindowPointer()))
+    GLFWwindow* window = App::Instance::GetWindowPointer();
+    while (!glfwWindowShouldClose(window))
     {
       glfwPollEvents();
+      if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
       DrawFrame();
     }
 
@@ -182,6 +241,8 @@ namespace App
     VulkanCommands::Destroy();
     VulkanPipeline::Destroy();
     VulkanSwapchain::Destroy();
+    triangleMesh.Destroy();
+    Camera::Destroy();
     VulkanDevice::Destroy();
     App::Instance::Destroy();
   }
