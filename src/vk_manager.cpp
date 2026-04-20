@@ -31,12 +31,6 @@ namespace VulkanBackendManager
             return false;
         }
 
-        if (!VulkanPipeline::Create())
-        {
-            std::cout << "Failed to create graphics pipeline\n";
-            return false;
-        }
-
         if (!VulkanCommands::Create())
         {
             std::cout << "Failed to create command buffers\n";
@@ -46,6 +40,23 @@ namespace VulkanBackendManager
         if (!MemoryManager::Init(VulkanCommands::GetCommandPool()))
         {
             std::cout << "Failed to init memory manager\n";
+            return false;
+        }
+
+        VkBuffer uboBuffers[VulkanSynchronization::MAX_FRAMES_IN_FLIGHT];
+        for (uint32_t i = 0; i < VulkanSynchronization::MAX_FRAMES_IN_FLIGHT; i++)
+            uboBuffers[i] = Camera::GetUBOBuffer(i);
+
+        if (!MemoryManager::CreateDescriptors(uboBuffers, Camera::GetUBOSize(),
+                                              VulkanSynchronization::MAX_FRAMES_IN_FLIGHT))
+        {
+            std::cout << "Failed to create descriptors\n";
+            return false;
+        }
+
+        if (!VulkanPipeline::Create())
+        {
+            std::cout << "Failed to create graphics pipeline\n";
             return false;
         }
 
@@ -61,8 +72,9 @@ namespace VulkanBackendManager
     void Shutdown()
     {
         VulkanSynchronization::Destroy();
-        VulkanCommands::Destroy();
         VulkanPipeline::Destroy();
+        MemoryManager::DestroyDescriptors();
+        VulkanCommands::Destroy();
         VulkanSwapchain::Destroy();
         Camera::Destroy();
         VulkanDevice::Destroy();

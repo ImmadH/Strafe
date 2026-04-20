@@ -3,6 +3,7 @@
 #include "pipeline.h"
 #include "swapchain.h"
 #include "sync.h"
+#include "memory.h"
 #include "app.h"
 #include "camera.h"
 #include <glm/glm.hpp>
@@ -82,16 +83,15 @@ namespace VulkanCommands
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline::GetGraphicsPipeline());
 
-        VkDescriptorSet ds = Camera::GetDescriptorSet(frameIndex);
+        VkDescriptorSet cameraDs = MemoryManager::GetCameraDescriptorSet(frameIndex);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            VulkanPipeline::GetPipelineLayout(), 0, 1, &ds, 0, nullptr);
+            VulkanPipeline::GetPipelineLayout(), 0, 1, &cameraDs, 0, nullptr);
 
         glm::mat4 model = glm::mat4(1.0f);
-		model = glm::scale(model, glm::vec3(0.1f, 0.1f, 0.1f));
         vkCmdPushConstants(cmd, VulkanPipeline::GetPipelineLayout(),
             VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &model);
 
-        Mesh::MeshData& mesh = App::GetMesh();
+        Mesh::AssetData& mesh = App::GetMesh();
         VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
         vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
@@ -112,7 +112,14 @@ namespace VulkanCommands
         scissor.extent = extent;
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-        vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
+        for (const Mesh::MeshData& sub : mesh.meshes)
+        {
+            if (sub.textureDescriptorSet != VK_NULL_HANDLE)
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    VulkanPipeline::GetPipelineLayout(), 1, 1, &sub.textureDescriptorSet, 0, nullptr);
+
+            vkCmdDrawIndexed(cmd, sub.indexCount, 1, sub.indexOffset, 0, 0);
+        }
 
         vkCmdEndRenderPass(cmd);
 

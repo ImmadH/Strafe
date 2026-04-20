@@ -4,13 +4,17 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <stdexcept>
+#include <unordered_map>
+#include <string>
 
 #include "vk_manager.h"
 #include "VulkanBackend/device.h"
 #include "VulkanBackend/swapchain.h"
 #include "VulkanBackend/commands.h"
 #include "VulkanBackend/sync.h"
+#include "VulkanBackend/memory.h"
 #include "mesh.h"
+#include "texture.h"
 #include "camera.h"
 
 namespace App
@@ -18,9 +22,10 @@ namespace App
   static bool framebufferResized = false;
   static uint32_t currentFrame = 0;
   static uint32_t acquireSemaphoreIndex = 0;
-  static Mesh::MeshData mesh;
+  static Mesh::AssetData mesh;
+  static std::unordered_map<std::string, Texture::TextureData> textures;
 
-  Mesh::MeshData& GetMesh() { return mesh; }
+  Mesh::AssetData& GetMesh() { return mesh; }
 
   static double lastMouseX  = 0.0;
   static double lastMouseY  = 0.0;
@@ -97,10 +102,37 @@ namespace App
     if (!VulkanBackendManager::Init())
       return false;
 
-    if (!Mesh::LoadFromFile(mesh, "assets/models/Cube/scene.gltf"))
+    const char* modelPath = "assets/models/Person/scene.gltf";
+    if (!Mesh::LoadFromFile(mesh, modelPath))
     {
       std::cout << "Failed to load mesh\n";
       return false;
+    }
+
+	//TODO MAKE A ASSET MANAGER
+    //texture directory from model path
+    std::string modelDir(modelPath);
+    modelDir = modelDir.substr(0, modelDir.find_last_of("/\\") + 1);
+
+    for (Mesh::MeshData& sub : mesh.meshes)
+    {
+      if (sub.texturePath.empty()) continue;
+
+      std::string fullPath = modelDir + sub.texturePath;
+
+      if (textures.find(fullPath) == textures.end())
+      {
+        Texture::TextureData tex;
+        if (!Texture::LoadFromFile(tex, fullPath.c_str()))
+        {
+          std::cout << "Failed to load texture: " << fullPath << "\n";
+          return false;
+        }
+        textures[fullPath] = tex;
+      }
+
+      sub.textureDescriptorSet = MemoryManager::AllocateTextureDescriptorSet(
+        textures[fullPath].imageView, textures[fullPath].sampler);
     }
 
     return true;
@@ -215,6 +247,8 @@ namespace App
   void cleanup()
   {
     Mesh::Destroy(mesh);
+    for (auto& [path, tex] : textures)
+      Texture::Destroy(tex);
     VulkanBackendManager::Shutdown();
     App::Instance::Destroy();
   }

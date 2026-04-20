@@ -8,7 +8,6 @@
 #include <array>
 #include <algorithm>
 #include <cstring>
-#include <stdexcept>
 
 namespace Camera
 {
@@ -16,21 +15,18 @@ namespace Camera
 
     static constexpr uint32_t FRAME_COUNT = VulkanSynchronization::MAX_FRAMES_IN_FLIGHT;
 
-    static glm::vec3 position  = { 0.0f, 0.0f, 3.0f };
-    static float     yaw       = -90.0f;
-    static float     pitch     = 0.0f;
-    static float     moveSpeed = 3.0f;
+    static glm::vec3 position    = { 0.0f, 0.0f, 3.0f };
+    static float     yaw         = -90.0f;
+    static float     pitch       = 0.0f;
+    static float     moveSpeed   = 3.0f;
     static float     sensitivity = 0.1f;
-    static float     fov       = 45.0f;
-    static float     nearPlane = 0.1f;
-    static float     farPlane  = 1000.0f;
+    static float     fov         = 45.0f;
+    static float     nearPlane   = 0.1f;
+    static float     farPlane    = 1000.0f;
 
-    static std::array<VkBuffer,        FRAME_COUNT> uboBuffers;
-    static std::array<VmaAllocation,   FRAME_COUNT> uboAllocations;
-    static std::array<void*,           FRAME_COUNT> uboMapped;
-    static VkDescriptorSetLayout                    descriptorSetLayout = VK_NULL_HANDLE;
-    static VkDescriptorPool                         descriptorPool      = VK_NULL_HANDLE;
-    static std::array<VkDescriptorSet, FRAME_COUNT> descriptorSets;
+    static std::array<VkBuffer,      FRAME_COUNT> uboBuffers;
+    static std::array<VmaAllocation, FRAME_COUNT> uboAllocations;
+    static std::array<void*,         FRAME_COUNT> uboMapped;
 
     static glm::vec3 GetForward()
     {
@@ -73,18 +69,17 @@ namespace Camera
     void UpdateUBO(uint32_t frameIndex, float aspect)
     {
         CameraUBO ubo{};
-        ubo.view         = glm::lookAt(position, position + GetForward(), glm::vec3{ 0.0f, 1.0f, 0.0f });
-        ubo.proj         = glm::perspective(glm::radians(fov), aspect, nearPlane, farPlane);
-        ubo.proj[1][1]  *= -1.0f; // Vulkan NDC has Y pointing down
+        ubo.view        = glm::lookAt(position, position + GetForward(), glm::vec3{ 0.0f, 1.0f, 0.0f });
+        ubo.proj        = glm::perspective(glm::radians(fov), aspect, nearPlane, farPlane);
+        ubo.proj[1][1] *= -1.0f;
         memcpy(uboMapped[frameIndex], &ubo, sizeof(ubo));
     }
 
-    VkDescriptorSetLayout GetDescriptorSetLayout() { return descriptorSetLayout; }
-    VkDescriptorSet       GetDescriptorSet(uint32_t frameIndex) { return descriptorSets[frameIndex]; }
+    VkBuffer     GetUBOBuffer(uint32_t frameIndex) { return uboBuffers[frameIndex]; }
+    VkDeviceSize GetUBOSize()                      { return sizeof(CameraUBO); }
 
     bool Create()
     {
-        VkDevice     device    = VulkanDevice::GetDevice();
         VmaAllocator allocator = VulkanDevice::GetAllocator();
 
         for (uint32_t i = 0; i < FRAME_COUNT; i++)
@@ -101,70 +96,9 @@ namespace Camera
             VmaAllocationInfo allocInfo;
             if (vmaCreateBuffer(allocator, &bufInfo, &allocCreateInfo,
                     &uboBuffers[i], &uboAllocations[i], &allocInfo) != VK_SUCCESS)
-            {
                 return false;
-            }
+
             uboMapped[i] = allocInfo.pMappedData;
-        }
-
-        // Descriptor set layout
-        VkDescriptorSetLayoutBinding uboBinding{};
-        uboBinding.binding         = 0;
-        uboBinding.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        uboBinding.descriptorCount = 1;
-        uboBinding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT;
-
-        VkDescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount = 1;
-        layoutInfo.pBindings    = &uboBinding;
-
-        if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS)
-            return false;
-
-        VkDescriptorPoolSize poolSize{};
-        poolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSize.descriptorCount = FRAME_COUNT;
-
-        VkDescriptorPoolCreateInfo poolInfo{};
-        poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.poolSizeCount = 1;
-        poolInfo.pPoolSizes    = &poolSize;
-        poolInfo.maxSets       = FRAME_COUNT;
-
-        if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
-            return false;
-
-        std::array<VkDescriptorSetLayout, FRAME_COUNT> layouts;
-        layouts.fill(descriptorSetLayout);
-
-        VkDescriptorSetAllocateInfo dsAllocInfo{};
-        dsAllocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        dsAllocInfo.descriptorPool     = descriptorPool;
-        dsAllocInfo.descriptorSetCount = FRAME_COUNT;
-        dsAllocInfo.pSetLayouts        = layouts.data();
-
-        if (vkAllocateDescriptorSets(device, &dsAllocInfo, descriptorSets.data()) != VK_SUCCESS)
-            return false;
-
-        // Point each descriptor set at its own UBO buffer
-        for (uint32_t i = 0; i < FRAME_COUNT; i++)
-        {
-            VkDescriptorBufferInfo bufferInfo{};
-            bufferInfo.buffer = uboBuffers[i];
-            bufferInfo.offset = 0;
-            bufferInfo.range  = sizeof(CameraUBO);
-
-            VkWriteDescriptorSet write{};
-            write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.dstSet          = descriptorSets[i];
-            write.dstBinding      = 0;
-            write.dstArrayElement = 0;
-            write.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            write.descriptorCount = 1;
-            write.pBufferInfo     = &bufferInfo;
-
-            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
         }
 
         return true;
@@ -172,12 +106,7 @@ namespace Camera
 
     void Destroy()
     {
-        VkDevice     device    = VulkanDevice::GetDevice();
         VmaAllocator allocator = VulkanDevice::GetAllocator();
-
-        vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-        vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
-
         for (uint32_t i = 0; i < FRAME_COUNT; i++)
             vmaDestroyBuffer(allocator, uboBuffers[i], uboAllocations[i]);
     }

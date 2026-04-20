@@ -13,6 +13,7 @@ namespace VulkanDevice
     uint32_t GetPresentQueueFamilyIndex();
     VkQueue GetGraphicsQueue();
     VmaAllocator GetAllocator();
+    float GetMaxAnisotropy();
 }
 
 

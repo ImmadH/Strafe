@@ -2,6 +2,7 @@
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 #include <vector>
+#include <string>
 #include <cstddef>
 
 namespace Mesh
@@ -15,6 +16,14 @@ namespace Mesh
 
     struct MeshData
     {
+        uint32_t        indexOffset          = 0;
+        uint32_t        indexCount           = 0;
+        std::string     texturePath;
+        VkDescriptorSet textureDescriptorSet = VK_NULL_HANDLE;
+    };
+
+    struct AssetData
+    {
         VkBuffer      vertexBuffer  = VK_NULL_HANDLE;
         VmaAllocation vertexAlloc   = VK_NULL_HANDLE;
         uint32_t      vertexCount   = 0;
@@ -22,13 +31,15 @@ namespace Mesh
         VkBuffer      indexBuffer   = VK_NULL_HANDLE;
         VmaAllocation indexAlloc    = VK_NULL_HANDLE;
         uint32_t      indexCount    = 0;
+
+        std::vector<MeshData> meshes;
     };
 
     VkVertexInputBindingDescription                GetBindingDescription();
     std::vector<VkVertexInputAttributeDescription> GetAttributeDescriptions();
 
 
-	bool LoadFromFile(MeshData& mesh, const char* filePath);
-    bool Upload(MeshData& mesh, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
-    void Destroy(MeshData& mesh);
+	bool LoadFromFile(AssetData& asset, const char* filePath);
+    bool Upload(AssetData& asset, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+    void Destroy(AssetData& asset);
 }

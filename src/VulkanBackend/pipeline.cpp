@@ -1,8 +1,8 @@
 #include "pipeline.h"
 #include "device.h"
 #include "swapchain.h"
+#include "memory.h"
 #include "mesh.h"
-#include "camera.h"
 #include <vector>
 #include <string>
 #include <ios>
@@ -280,7 +280,10 @@ namespace VulkanPipeline
 		dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
 		dynamicState.pDynamicStates = dynamicStates.data();
 
-		VkDescriptorSetLayout cameraLayout = Camera::GetDescriptorSetLayout();
+		VkDescriptorSetLayout setLayouts[] = {
+			MemoryManager::GetCameraDescriptorSetLayout(),
+			MemoryManager::GetTextureDescriptorSetLayout()
+		};
 
 		VkPushConstantRange pushConstant{};
 		pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
@@ -289,8 +292,8 @@ namespace VulkanPipeline
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount         = 1;
-		pipelineLayoutInfo.pSetLayouts            = &cameraLayout;
+		pipelineLayoutInfo.setLayoutCount         = 2;
+		pipelineLayoutInfo.pSetLayouts            = setLayouts;
 		pipelineLayoutInfo.pushConstantRangeCount = 1;
 		pipelineLayoutInfo.pPushConstantRanges    = &pushConstant;
 

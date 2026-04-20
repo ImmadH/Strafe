@@ -156,6 +156,7 @@ namespace VulkanDevice
         }
 
         VkPhysicalDeviceFeatures deviceFeatures{};
+        deviceFeatures.samplerAnisotropy = VK_TRUE;
 
         VkDeviceCreateInfo deviceInfo{};
         deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -271,5 +272,12 @@ namespace VulkanDevice
     VmaAllocator GetAllocator()
     {
         return allocator;
+    }
+
+    float GetMaxAnisotropy()
+    {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(physicalDevice, &props);
+        return props.limits.maxSamplerAnisotropy;
     }
 }

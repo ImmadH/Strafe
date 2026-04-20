@@ -8,7 +8,7 @@
 namespace Mesh
 {
 
-	bool LoadFromFile(MeshData& mesh, const char* filePath)
+	bool LoadFromFile(AssetData& mesh, const char* filePath)
 	{
 		cgltf_options options = {};
 		cgltf_data* data = nullptr;
@@ -26,37 +26,80 @@ namespace Mesh
 		}
 
 		//grab prims and verts then normal and uvs
-		cgltf_primitive* prim = &data->meshes[0].primitives[0];
-
-		std::vector<Vertex> vertices;
-
-		for (cgltf_size i = 0; i < prim->attributes_count; i++)
-		{
-			cgltf_attribute* attr     = &prim->attributes[i];
-			cgltf_accessor*  accessor = attr->data;
-			cgltf_size       count    = accessor->count;
-
-			if (vertices.size() < count)
-				vertices.resize(count);
-
-			for (cgltf_size j = 0; j < count; j++)
-			{
-				if (attr->type == cgltf_attribute_type_position)
-					cgltf_accessor_read_float(accessor, j, vertices[j].pos,    3);
-				else if (attr->type == cgltf_attribute_type_normal)
-					cgltf_accessor_read_float(accessor, j, vertices[j].normal, 3);
-				else if (attr->type == cgltf_attribute_type_texcoord)
-					cgltf_accessor_read_float(accessor, j, vertices[j].uv,     2);
-			}
-		}
-
-		//INDICIES
+		std::vector<Vertex>   vertices;
 		std::vector<uint32_t> indices;
-		indices.resize(prim->indices->count);
+		std::vector<MeshData>  meshes;
 
-		for (cgltf_size j = 0; j < prim->indices->count; j++)
+		for (cgltf_size n = 0; n < data->nodes_count; n++)
 		{
-			indices[j] = static_cast<uint32_t>(cgltf_accessor_read_index(prim->indices, j));
+			cgltf_node* node = &data->nodes[n];
+			if (!node->mesh) continue;
+
+			float world[16];
+			cgltf_node_transform_world(node, world);
+
+			for (cgltf_size p = 0; p < node->mesh->primitives_count; p++)
+			{
+				cgltf_primitive* prim       = &node->mesh->primitives[p];
+				uint32_t         vertexBase = static_cast<uint32_t>(vertices.size());
+
+				for (cgltf_size i = 0; i < prim->attributes_count; i++)
+				{
+					cgltf_attribute* attr     = &prim->attributes[i];
+					cgltf_accessor*  accessor = attr->data;
+					cgltf_size       count    = accessor->count;
+
+					if (vertices.size() < vertexBase + count)
+						vertices.resize(vertexBase + count);
+
+					for (cgltf_size j = 0; j < count; j++)
+					{
+						Vertex& v = vertices[vertexBase + j];
+
+						if (attr->type == cgltf_attribute_type_position)
+						{
+							float pos[3];
+							cgltf_accessor_read_float(accessor, j, pos, 3);
+							v.pos[0] = world[0]*pos[0] + world[4]*pos[1] + world[8] *pos[2] + world[12];
+							v.pos[1] = world[1]*pos[0] + world[5]*pos[1] + world[9] *pos[2] + world[13];
+							v.pos[2] = world[2]*pos[0] + world[6]*pos[1] + world[10]*pos[2] + world[14];
+						}
+						else if (attr->type == cgltf_attribute_type_normal)
+						{
+							float n[3];
+							cgltf_accessor_read_float(accessor, j, n, 3);
+							v.normal[0] = world[0]*n[0] + world[4]*n[1] + world[8] *n[2];
+							v.normal[1] = world[1]*n[0] + world[5]*n[1] + world[9] *n[2];
+							v.normal[2] = world[2]*n[0] + world[6]*n[1] + world[10]*n[2];
+						}
+						else if (attr->type == cgltf_attribute_type_texcoord)
+						{
+							cgltf_accessor_read_float(accessor, j, v.uv, 2);
+						}
+					}
+				}
+
+				//INDICIES
+				MeshData sub{};
+				sub.indexOffset = static_cast<uint32_t>(indices.size());
+				if (prim->indices)
+				{
+					for (cgltf_size j = 0; j < prim->indices->count; j++)
+						indices.push_back(vertexBase + static_cast<uint32_t>(cgltf_accessor_read_index(prim->indices, j)));
+					sub.indexCount = static_cast<uint32_t>(prim->indices->count);
+				}
+
+				if (prim->material &&
+				    prim->material->has_pbr_metallic_roughness &&
+				    prim->material->pbr_metallic_roughness.base_color_texture.texture &&
+				    prim->material->pbr_metallic_roughness.base_color_texture.texture->image &&
+				    prim->material->pbr_metallic_roughness.base_color_texture.texture->image->uri)
+				{
+					sub.texturePath = prim->material->pbr_metallic_roughness.base_color_texture.texture->image->uri;
+				}
+
+				meshes.push_back(sub);
+			}
 		}
 
 		cgltf_free(data);
@@ -64,6 +107,7 @@ namespace Mesh
 		if (!Upload(mesh, vertices, indices))
 			return false;
 
+		mesh.meshes = std::move(meshes);
 		return true;
 	}
 
@@ -114,7 +158,7 @@ namespace Mesh
 	}
 
 	
-	bool Upload(MeshData& mesh, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
+	bool Upload(AssetData& mesh, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
 	{
 	    VkDeviceSize vertexSize = sizeof(Vertex) * vertices.size();
 	    VkDeviceSize indexSize  = sizeof(uint32_t) * indices.size();
@@ -136,7 +180,7 @@ namespace Mesh
 	    return true;
 	}
 
-	void Destroy(MeshData& mesh)
+	void Destroy(AssetData& mesh)
 	{
 	    if (mesh.vertexBuffer != VK_NULL_HANDLE)
 	    {

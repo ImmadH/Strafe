@@ -8,6 +8,19 @@ namespace MemoryManager
 
     bool Init(VkCommandPool commandPool);
 
-    // Allocates a GPU-only buffer and uploads data via a staging buffer
     bool UploadBuffer(VkBuffer dst, const void* data, VkDeviceSize size);
+    bool UploadImage(VkImage dst, const void* data, uint32_t width, uint32_t height);
+
+    void TransitionImageLayout(VkCommandBuffer cmd, VkImage image,
+                               VkImageLayout oldLayout, VkImageLayout newLayout);
+
+    // Descriptor management
+    bool CreateDescriptors(VkBuffer* uboBuffers, VkDeviceSize uboSize, uint32_t frameCount);
+    void DestroyDescriptors();
+
+    VkDescriptorSet AllocateTextureDescriptorSet(VkImageView imageView, VkSampler sampler);
+
+    VkDescriptorSetLayout GetCameraDescriptorSetLayout();
+    VkDescriptorSetLayout GetTextureDescriptorSetLayout();
+    VkDescriptorSet       GetCameraDescriptorSet(uint32_t frameIndex);
 }
