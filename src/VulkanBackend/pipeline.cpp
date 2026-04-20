@@ -215,8 +215,8 @@ namespace VulkanPipeline
 
 		VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
-		auto binding    = Vertex::GetBindingDescription();
-		auto attributes = Vertex::GetAttributeDescriptions();
+		auto binding    = Mesh::GetBindingDescription();
+		auto attributes = Mesh::GetAttributeDescriptions();
 
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;

@@ -8,5 +8,5 @@ namespace App
   void cleanup();
 
   bool CreateSurface(void* surface);
-  Mesh& GetTriangleMesh();
+  Mesh::MeshData& GetMesh();
 }

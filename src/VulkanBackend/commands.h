@@ -9,4 +9,5 @@ namespace VulkanCommands
 
     void RecordCommandBuffer(uint32_t imageIndex, uint32_t frameIndex);
     VkCommandBuffer GetCommandBuffer(uint32_t frameIndex);
+    VkCommandPool   GetCommandPool();
 }

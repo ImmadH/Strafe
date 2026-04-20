@@ -6,6 +6,7 @@
 #include "app.h"
 #include "camera.h"
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <stdexcept>
 #include <array>
 
@@ -86,10 +87,11 @@ namespace VulkanCommands
             VulkanPipeline::GetPipelineLayout(), 0, 1, &ds, 0, nullptr);
 
         glm::mat4 model = glm::mat4(1.0f);
+		model = glm::scale(model, glm::vec3(0.1f, 0.1f, 0.1f));
         vkCmdPushConstants(cmd, VulkanPipeline::GetPipelineLayout(),
             VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &model);
 
-        Mesh::MeshData& mesh = App::GetTriangleMesh();
+        Mesh::MeshData& mesh = App::GetMesh();
         VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
         vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);

@@ -1,15 +1,15 @@
 #include "app.h"
-#include "instance.h"
+#include "VulkanBackend/instance.h"
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <stdexcept>
 
-#include "device.h"
-#include "swapchain.h"
-#include "pipeline.h"
-#include "commands.h"
-#include "sync.h"
+#include "vk_manager.h"
+#include "VulkanBackend/device.h"
+#include "VulkanBackend/swapchain.h"
+#include "VulkanBackend/commands.h"
+#include "VulkanBackend/sync.h"
 #include "mesh.h"
 #include "camera.h"
 
@@ -18,9 +18,9 @@ namespace App
   static bool framebufferResized = false;
   static uint32_t currentFrame = 0;
   static uint32_t acquireSemaphoreIndex = 0;
-  static Mesh triangleMesh;
+  static Mesh::MeshData mesh;
 
-  Mesh& GetTriangleMesh() { return triangleMesh; }
+  Mesh::MeshData& GetMesh() { return mesh; }
 
   static double lastMouseX  = 0.0;
   static double lastMouseY  = 0.0;
@@ -68,9 +68,8 @@ namespace App
     framebufferResized = true;
   }
 
-  void RecreateSwapChain()
+  static void RecreateSwapChain()
   {
-    // Wait out minimization
     int width = 0, height = 0;
     while (width == 0 || height == 0)
     {
@@ -78,12 +77,7 @@ namespace App
       glfwWaitEvents();
     }
 
-    vkDeviceWaitIdle(VulkanDevice::GetDevice());
-
-    VulkanPipeline::RecreateFramebuffers();  // destroys old framebuffers
-    VulkanSwapchain::Destroy();              // destroys image views + swapchain
-    VulkanSwapchain::Create();               // recreates swapchain + image views
-    VulkanPipeline::RecreateFramebuffers();  // recreates framebuffers with new image views
+    VulkanBackendManager::RecreateSwapChain();
   }
 
   bool Init()
@@ -100,50 +94,12 @@ namespace App
     glfwSetCursorPosCallback(window, MouseCallback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-    if (!VulkanDevice::Create())
-    {
-      std::cout << "Failed to create vulkan device\n";
+    if (!VulkanBackendManager::Init())
       return false;
-    }
 
-    if (!Camera::Create())
+    if (!Mesh::LoadFromFile(mesh, "assets/models/Cube/scene.gltf"))
     {
-      std::cout << "Failed to create camera\n";
-      return false;
-    }
-
-    if (!VulkanSwapchain::Create())
-    {
-      std::cout << "Failed to create vulkan swapchain\n";
-      return false;
-    }
-
-    if (!VulkanPipeline::Create())
-    {
-      std::cout << "Failed to create graphics pipeline\n";
-      return false;
-    }
-
-    if (!VulkanCommands::Create())
-    {
-      std::cout << "Failed to create command buffers\n";
-      return false;
-    }
-
-    if (!VulkanSynchronization::Create())
-    {
-      std::cout << "Failed to create sync objects\n";
-      return false;
-    }
-
-    std::vector<Vertex> verts = {
-      {{ 0.0f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-      {{ 0.5f,  0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
-      {{-0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},
-    };
-    if (!triangleMesh.Upload(verts))
-    {
-      std::cout << "Failed to upload triangle mesh\n";
+      std::cout << "Failed to load mesh\n";
       return false;
     }
 
@@ -258,13 +214,8 @@ namespace App
 
   void cleanup()
   {
-    VulkanSynchronization::Destroy();
-    VulkanCommands::Destroy();
-    VulkanPipeline::Destroy();
-    VulkanSwapchain::Destroy();
-    triangleMesh.Destroy();
-    Camera::Destroy();
-    VulkanDevice::Destroy();
+    Mesh::Destroy(mesh);
+    VulkanBackendManager::Shutdown();
     App::Instance::Destroy();
   }
 }

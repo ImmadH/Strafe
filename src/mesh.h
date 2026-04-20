@@ -4,21 +4,31 @@
 #include <vector>
 #include <cstddef>
 
-struct Vertex
+namespace Mesh
 {
-    float pos[3];
-    float color[3];
+    struct Vertex
+    {
+        float pos[3];
+        float normal[3];
+        float uv[2];
+    };
 
-    static VkVertexInputBindingDescription GetBindingDescription();
-    static std::vector<VkVertexInputAttributeDescription> GetAttributeDescriptions();
-};
+    struct MeshData
+    {
+        VkBuffer      vertexBuffer  = VK_NULL_HANDLE;
+        VmaAllocation vertexAlloc   = VK_NULL_HANDLE;
+        uint32_t      vertexCount   = 0;
 
-struct Mesh
-{
-    VkBuffer      vertexBuffer = VK_NULL_HANDLE;
-    VmaAllocation allocation   = VK_NULL_HANDLE;
-    uint32_t      vertexCount  = 0;
+        VkBuffer      indexBuffer   = VK_NULL_HANDLE;
+        VmaAllocation indexAlloc    = VK_NULL_HANDLE;
+        uint32_t      indexCount    = 0;
+    };
 
-    bool Upload(const std::vector<Vertex>& vertices);
-    void Destroy();
-};
+    VkVertexInputBindingDescription                GetBindingDescription();
+    std::vector<VkVertexInputAttributeDescription> GetAttributeDescriptions();
+
+
+	bool LoadFromFile(MeshData& mesh, const char* filePath);
+    bool Upload(MeshData& mesh, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+    void Destroy(MeshData& mesh);
+}

@@ -1,6 +1,6 @@
 #include "camera.h"
-#include "device.h"
-#include "sync.h"
+#include "VulkanBackend/device.h"
+#include "VulkanBackend/sync.h"
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
