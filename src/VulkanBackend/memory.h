@@ -12,7 +12,11 @@ namespace MemoryManager
     bool UploadImage(VkImage dst, const void* data, uint32_t width, uint32_t height);
 
     void TransitionImageLayout(VkCommandBuffer cmd, VkImage image,
-                               VkImageLayout oldLayout, VkImageLayout newLayout);
+                               VkImageLayout oldLayout, VkImageLayout newLayout,
+                               uint32_t baseMip = 0, uint32_t mipCount = 1);
+
+    VkCommandBuffer BeginOneTimeCommands();
+    void            EndOneTimeCommands(VkCommandBuffer cmd);
 
     // Descriptor management
     bool CreateDescriptors(VkBuffer* uboBuffers, VkDeviceSize uboSize, uint32_t frameCount);

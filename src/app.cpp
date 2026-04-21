@@ -16,10 +16,30 @@
 #include "mesh.h"
 #include "texture.h"
 #include "camera.h"
+#include "imgui_manager.h"
+#include "imgui.h"
 
 namespace App
 {
   static bool framebufferResized = false;
+  static bool isFullscreen = false;
+
+  static void ApplyFullscreenState(GLFWwindow* window)
+  {
+    if (isFullscreen == (glfwGetWindowMonitor(window) != nullptr)) return;
+
+    if (isFullscreen)
+    {
+      GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+      const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+      glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+    }
+    else
+    {
+      glfwSetWindowMonitor(window, nullptr, 100, 100, 1280, 720, 0);
+    }
+    VulkanBackendManager::RecreateSwapChain();
+  }
   static uint32_t currentFrame = 0;
   static uint32_t acquireSemaphoreIndex = 0;
   static Mesh::AssetData mesh;
@@ -102,6 +122,12 @@ namespace App
     if (!VulkanBackendManager::Init())
       return false;
 
+    if (!ImGuiManager::Init())
+    {
+      std::cout << "Failed to init ImGui\n";
+      return false;
+    }
+
     const char* modelPath = "assets/models/Person/scene.gltf";
     if (!Mesh::LoadFromFile(mesh, modelPath))
     {
@@ -145,6 +171,8 @@ namespace App
     float dt   = static_cast<float>(now - lastTime);
     lastTime   = now;
 
+    ApplyFullscreenState(App::Instance::GetWindowPointer());
+
     if (cursorLocked)
       Camera::ProcessKeyboard(App::Instance::GetWindowPointer(), dt);
 
@@ -175,6 +203,13 @@ namespace App
     }
 
     vkResetFences(device, 1, &inFlightFence);
+
+    ImGuiManager::BeginFrame();
+    ImGui::Begin("Debug - F1 For Cursor");
+    if (ImGui::CollapsingHeader("Application Settings"))
+      ImGui::Checkbox("Fullscreen", &isFullscreen);
+    ImGui::End();
+    ImGuiManager::EndFrame();
 
     vkResetCommandBuffer(commandBuffer, 0);
     VulkanCommands::RecordCommandBuffer(imageIndex, currentFrame);
@@ -246,6 +281,7 @@ namespace App
 
   void cleanup()
   {
+    ImGuiManager::Shutdown();
     Mesh::Destroy(mesh);
     for (auto& [path, tex] : textures)
       Texture::Destroy(tex);

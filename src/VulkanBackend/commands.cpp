@@ -6,6 +6,7 @@
 #include "memory.h"
 #include "app.h"
 #include "camera.h"
+#include "imgui_manager.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <stdexcept>
@@ -120,6 +121,8 @@ namespace VulkanCommands
 
             vkCmdDrawIndexed(cmd, sub.indexCount, 1, sub.indexOffset, 0, 0);
         }
+
+        ImGuiManager::Render(cmd);
 
         vkCmdEndRenderPass(cmd);
 
