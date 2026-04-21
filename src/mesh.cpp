@@ -7,7 +7,7 @@
 
 namespace Mesh
 {
-
+//parse and upload
 	bool LoadFromFile(AssetData& mesh, const char* filePath)
 	{
 		cgltf_options options = {};
@@ -89,13 +89,23 @@ namespace Mesh
 					sub.indexCount = static_cast<uint32_t>(prim->indices->count);
 				}
 
-				if (prim->material &&
-				    prim->material->has_pbr_metallic_roughness &&
-				    prim->material->pbr_metallic_roughness.base_color_texture.texture &&
-				    prim->material->pbr_metallic_roughness.base_color_texture.texture->image &&
-				    prim->material->pbr_metallic_roughness.base_color_texture.texture->image->uri)
+				//PBR!
+				if (prim->material && prim->material->has_pbr_metallic_roughness)
 				{
-					sub.texturePath = prim->material->pbr_metallic_roughness.base_color_texture.texture->image->uri;
+					auto& pbr = prim->material->pbr_metallic_roughness;
+
+					if (pbr.base_color_texture.texture &&
+					    pbr.base_color_texture.texture->image &&
+					    pbr.base_color_texture.texture->image->uri)
+						sub.texturePath = pbr.base_color_texture.texture->image->uri;
+
+					if (pbr.metallic_roughness_texture.texture &&
+					    pbr.metallic_roughness_texture.texture->image &&
+					    pbr.metallic_roughness_texture.texture->image->uri)
+						sub.metallicRoughnessPath = pbr.metallic_roughness_texture.texture->image->uri;
+
+					sub.metallicFactor  = pbr.metallic_factor;
+					sub.roughnessFactor = pbr.roughness_factor;
 				}
 
 				meshes.push_back(sub);

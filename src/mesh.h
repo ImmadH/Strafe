@@ -16,10 +16,13 @@ namespace Mesh
 
     struct MeshData
     {
-        uint32_t        indexOffset          = 0;
-        uint32_t        indexCount           = 0;
+        uint32_t        indexOffset               = 0;
+        uint32_t        indexCount                = 0;
         std::string     texturePath;
-        VkDescriptorSet textureDescriptorSet = VK_NULL_HANDLE;
+        std::string     metallicRoughnessPath;
+        float           metallicFactor            = 1.0f;
+        float           roughnessFactor           = 1.0f;
+        VkDescriptorSet textureDescriptorSet      = VK_NULL_HANDLE;
     };
 
     struct AssetData

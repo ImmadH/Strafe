@@ -12,8 +12,65 @@ namespace MemoryManager
     static VkCommandPool              s_commandPool          = VK_NULL_HANDLE;
     static VkDescriptorSetLayout      s_cameraLayout         = VK_NULL_HANDLE;
     static VkDescriptorSetLayout      s_textureLayout        = VK_NULL_HANDLE;
-    static VkDescriptorPool           s_descriptorPool       = VK_NULL_HANDLE;
+    static VkDescriptorSetLayout      s_iblLayout            = VK_NULL_HANDLE;
+    static VkDescriptorPool           s_uboPool              = VK_NULL_HANDLE;
+    static std::vector<VkDescriptorPool> s_imagePools;
     static std::vector<VkDescriptorSet> s_cameraDescriptorSets;
+    static VkDescriptorSet            s_fallbackTextureDs    = VK_NULL_HANDLE;
+
+    static constexpr uint32_t IMAGE_POOL_SETS  = 64;
+    static constexpr uint32_t IMAGE_POOL_DESCS = 256;
+
+    static VkDescriptorSet AllocFromImagePools(VkDescriptorSetLayout layout)
+    {
+        VkDevice device = VulkanDevice::GetDevice();
+
+        for (VkDescriptorPool pool : s_imagePools)
+        {
+            VkDescriptorSetAllocateInfo ai{};
+            ai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            ai.descriptorPool     = pool;
+            ai.descriptorSetCount = 1;
+            ai.pSetLayouts        = &layout;
+
+            VkDescriptorSet ds;
+            if (vkAllocateDescriptorSets(device, &ai, &ds) == VK_SUCCESS)
+                return ds;
+        }
+
+        VkDescriptorPoolSize poolSize{};
+        poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSize.descriptorCount = IMAGE_POOL_DESCS;
+
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes    = &poolSize;
+        poolInfo.maxSets       = IMAGE_POOL_SETS;
+
+        VkDescriptorPool newPool;
+        if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &newPool) != VK_SUCCESS)
+            return VK_NULL_HANDLE;
+
+        s_imagePools.push_back(newPool);
+
+        VkDescriptorSetAllocateInfo ai{};
+        ai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        ai.descriptorPool     = newPool;
+        ai.descriptorSetCount = 1;
+        ai.pSetLayouts        = &layout;
+
+        VkDescriptorSet ds;
+        if (vkAllocateDescriptorSets(device, &ai, &ds) != VK_SUCCESS)
+            return VK_NULL_HANDLE;
+
+        return ds;
+    }
+
+    static VkImage        s_fallbackImage     = VK_NULL_HANDLE;
+    static VmaAllocation  s_fallbackAlloc     = VK_NULL_HANDLE;
+    static VkImageView    s_fallbackImageView = VK_NULL_HANDLE;
+    static VkSampler      s_fallbackSampler   = VK_NULL_HANDLE;
 
     VkCommandPool GetCommandPool() { return s_commandPool; }
 
@@ -93,7 +150,8 @@ namespace MemoryManager
 
     void TransitionImageLayout(VkCommandBuffer cmd, VkImage image,
                                VkImageLayout oldLayout, VkImageLayout newLayout,
-                               uint32_t baseMip, uint32_t mipCount)
+                               uint32_t baseMip, uint32_t mipCount,
+                               uint32_t baseLayer, uint32_t layerCount)
     {
         VkImageMemoryBarrier barrier{};
         barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -102,7 +160,7 @@ namespace MemoryManager
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.image               = image;
-        barrier.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, baseMip, mipCount, 0, 1 };
+        barrier.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, baseMip, mipCount, baseLayer, layerCount };
 
         VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         VkPipelineStageFlags dstStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
@@ -154,9 +212,9 @@ namespace MemoryManager
         vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
 
-    bool UploadImage(VkImage dst, const void* data, uint32_t width, uint32_t height)
+    bool UploadImage(VkImage dst, const void* data, uint32_t width, uint32_t height, uint32_t bytesPerPixel)
     {
-        VkDeviceSize size = width * height * 4;
+        VkDeviceSize size = (VkDeviceSize)width * height * bytesPerPixel;
 
         VkBufferCreateInfo stagingInfo{};
         stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -209,7 +267,7 @@ namespace MemoryManager
         uboBinding.binding         = 0;
         uboBinding.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         uboBinding.descriptorCount = 1;
-        uboBinding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT;
+        uboBinding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
         VkDescriptorSetLayoutCreateInfo cameraLayoutInfo{};
         cameraLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -219,42 +277,108 @@ namespace MemoryManager
         if (vkCreateDescriptorSetLayout(device, &cameraLayoutInfo, nullptr, &s_cameraLayout) != VK_SUCCESS)
             return false;
 
-        // set 1: per-material texture
-        VkDescriptorSetLayoutBinding samplerBinding{};
-        samplerBinding.binding         = 0;
-        samplerBinding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        samplerBinding.descriptorCount = 1;
-        samplerBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+        // set 1: per-material textures (binding 0 = albedo, binding 1 = metallic/roughness)
+        VkDescriptorSetLayoutBinding textureBindings[2]{};
+        textureBindings[0].binding         = 0;
+        textureBindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        textureBindings[0].descriptorCount = 1;
+        textureBindings[0].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+        textureBindings[1].binding         = 1;
+        textureBindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        textureBindings[1].descriptorCount = 1;
+        textureBindings[1].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
 
         VkDescriptorSetLayoutCreateInfo textureLayoutInfo{};
         textureLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        textureLayoutInfo.bindingCount = 1;
-        textureLayoutInfo.pBindings    = &samplerBinding;
+        textureLayoutInfo.bindingCount = 2;
+        textureLayoutInfo.pBindings    = textureBindings;
 
         if (vkCreateDescriptorSetLayout(device, &textureLayoutInfo, nullptr, &s_textureLayout) != VK_SUCCESS)
             return false;
 
-        VkDescriptorPoolSize poolSizes[2];
-        poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSizes[0].descriptorCount = frameCount;
-        poolSizes[1].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSizes[1].descriptorCount = 32;
+        // set 2: IBL (binding 0=irradiance, binding 1=prefiltered, binding 2=BRDF LUT, binding 3=environment)
+        VkDescriptorSetLayoutBinding iblBindings[4]{};
+        for (int i = 0; i < 4; i++)
+        {
+            iblBindings[i].binding         = i;
+            iblBindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            iblBindings[i].descriptorCount = 1;
+            iblBindings[i].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+        }
+        VkDescriptorSetLayoutCreateInfo iblLayoutInfo{};
+        iblLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        iblLayoutInfo.bindingCount = 4;
+        iblLayoutInfo.pBindings    = iblBindings;
 
-        VkDescriptorPoolCreateInfo poolInfo{};
-        poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.poolSizeCount = 2;
-        poolInfo.pPoolSizes    = poolSizes;
-        poolInfo.maxSets       = frameCount + 32;
-
-        if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &s_descriptorPool) != VK_SUCCESS)
+        if (vkCreateDescriptorSetLayout(device, &iblLayoutInfo, nullptr, &s_iblLayout) != VK_SUCCESS)
             return false;
 
-		//for camera
+        VkDescriptorPoolSize uboPoolSize{};
+        uboPoolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        uboPoolSize.descriptorCount = frameCount;
+
+        VkDescriptorPoolCreateInfo uboPoolInfo{};
+        uboPoolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        uboPoolInfo.poolSizeCount = 1;
+        uboPoolInfo.pPoolSizes    = &uboPoolSize;
+        uboPoolInfo.maxSets       = frameCount;
+
+        if (vkCreateDescriptorPool(device, &uboPoolInfo, nullptr, &s_uboPool) != VK_SUCCESS)
+            return false;
+
+        // 1x1 UNORM fallback for metallic/roughness 
+        {
+            // R=255 G=255 B=255 so texture factors multiply through cleanly (factor * 1.0 = factor)
+            uint8_t pixel[4] = { 255, 255, 255, 255 };
+
+            VkImageCreateInfo imgInfo{};
+            imgInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            imgInfo.imageType     = VK_IMAGE_TYPE_2D;
+            imgInfo.extent        = { 1, 1, 1 };
+            imgInfo.mipLevels     = 1;
+            imgInfo.arrayLayers   = 1;
+            imgInfo.format        = VK_FORMAT_R8G8B8A8_UNORM;
+            imgInfo.tiling        = VK_IMAGE_TILING_OPTIMAL;
+            imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            imgInfo.usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+            imgInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
+            imgInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+
+            VmaAllocationCreateInfo allocInfo{};
+            allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+            vmaCreateImage(VulkanDevice::GetAllocator(), &imgInfo, &allocInfo,
+                           &s_fallbackImage, &s_fallbackAlloc, nullptr);
+            UploadImage(s_fallbackImage, pixel, 1, 1);
+
+            VkImageViewCreateInfo viewInfo{};
+            viewInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            viewInfo.image                           = s_fallbackImage;
+            viewInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
+            viewInfo.format                          = VK_FORMAT_R8G8B8A8_UNORM;
+            viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            viewInfo.subresourceRange.levelCount     = 1;
+            viewInfo.subresourceRange.layerCount     = 1;
+            vkCreateImageView(device, &viewInfo, nullptr, &s_fallbackImageView);
+
+            VkSamplerCreateInfo samplerInfo{};
+            samplerInfo.sType     = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+            samplerInfo.magFilter = VK_FILTER_LINEAR;
+            samplerInfo.minFilter = VK_FILTER_LINEAR;
+            samplerInfo.maxLod    = 1.0f;
+            vkCreateSampler(device, &samplerInfo, nullptr, &s_fallbackSampler);
+        }
+
+        s_fallbackTextureDs = AllocateTextureDescriptorSet(
+            s_fallbackImageView, s_fallbackSampler,
+            s_fallbackImageView, s_fallbackSampler);
+
+        //for camera
         std::vector<VkDescriptorSetLayout> cameraLayouts(frameCount, s_cameraLayout);
 
         VkDescriptorSetAllocateInfo dsAllocInfo{};
         dsAllocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        dsAllocInfo.descriptorPool     = s_descriptorPool;
+        dsAllocInfo.descriptorPool     = s_uboPool;
         dsAllocInfo.descriptorSetCount = frameCount;
         dsAllocInfo.pSetLayouts        = cameraLayouts.data();
 
@@ -286,45 +410,90 @@ namespace MemoryManager
     void DestroyDescriptors()
     {
         VkDevice device = VulkanDevice::GetDevice();
-        vkDestroyDescriptorPool(device, s_descriptorPool, nullptr);
+        vkDestroySampler(device, s_fallbackSampler, nullptr);
+        vkDestroyImageView(device, s_fallbackImageView, nullptr);
+        vmaDestroyImage(VulkanDevice::GetAllocator(), s_fallbackImage, s_fallbackAlloc);
+        for (VkDescriptorPool pool : s_imagePools)
+            vkDestroyDescriptorPool(device, pool, nullptr);
+        s_imagePools.clear();
+        vkDestroyDescriptorPool(device, s_uboPool, nullptr);
+        vkDestroyDescriptorSetLayout(device, s_iblLayout, nullptr);
         vkDestroyDescriptorSetLayout(device, s_textureLayout, nullptr);
         vkDestroyDescriptorSetLayout(device, s_cameraLayout, nullptr);
-        s_descriptorPool  = VK_NULL_HANDLE;
+        s_uboPool         = VK_NULL_HANDLE;
         s_cameraLayout    = VK_NULL_HANDLE;
         s_textureLayout   = VK_NULL_HANDLE;
+        s_fallbackTextureDs = VK_NULL_HANDLE;
         s_cameraDescriptorSets.clear();
     }
 
-    VkDescriptorSet AllocateTextureDescriptorSet(VkImageView imageView, VkSampler sampler)
+    VkDescriptorSet AllocateTextureDescriptorSet(VkImageView albedoView,   VkSampler albedoSampler,
+                                                 VkImageView mrView,       VkSampler mrSampler)
     {
-        VkDescriptorSetAllocateInfo allocInfo{};
-        allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool     = s_descriptorPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts        = &s_textureLayout;
-
-        VkDescriptorSet ds;
-        if (vkAllocateDescriptorSets(VulkanDevice::GetDevice(), &allocInfo, &ds) != VK_SUCCESS)
+        VkDescriptorSet ds = AllocFromImagePools(s_textureLayout);
+        if (ds == VK_NULL_HANDLE)
             return VK_NULL_HANDLE;
 
-        VkDescriptorImageInfo imageInfo{};
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView   = imageView;
-        imageInfo.sampler     = sampler;
+        VkDescriptorImageInfo imageInfos[2]{};
+        imageInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfos[0].imageView   = albedoView;
+        imageInfos[0].sampler     = albedoSampler;
+        imageInfos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfos[1].imageView   = mrView;
+        imageInfos[1].sampler     = mrSampler;
 
-        VkWriteDescriptorSet write{};
-        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet          = ds;
-        write.dstBinding      = 0;
-        write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = 1;
-        write.pImageInfo      = &imageInfo;
+        VkWriteDescriptorSet writes[2]{};
+        writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet          = ds;
+        writes[0].dstBinding      = 0;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].descriptorCount = 1;
+        writes[0].pImageInfo      = &imageInfos[0];
+        writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet          = ds;
+        writes[1].dstBinding      = 1;
+        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].descriptorCount = 1;
+        writes[1].pImageInfo      = &imageInfos[1];
 
-        vkUpdateDescriptorSets(VulkanDevice::GetDevice(), 1, &write, 0, nullptr);
+        vkUpdateDescriptorSets(VulkanDevice::GetDevice(), 2, writes, 0, nullptr);
+        return ds;
+    }
+
+    VkDescriptorSet AllocateIBLDescriptorSet(VkImageView irradianceView,  VkSampler irradianceSampler,
+                                             VkImageView prefilteredView, VkSampler prefilteredSampler,
+                                             VkImageView brdfLUTView,     VkSampler brdfLUTSampler,
+                                             VkImageView environmentView, VkSampler environmentSampler)
+    {
+        VkDescriptorSet ds = AllocFromImagePools(s_iblLayout);
+        if (ds == VK_NULL_HANDLE)
+            return VK_NULL_HANDLE;
+
+        VkDescriptorImageInfo imageInfos[4]{};
+        imageInfos[0] = { irradianceSampler,  irradianceView,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        imageInfos[1] = { prefilteredSampler, prefilteredView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        imageInfos[2] = { brdfLUTSampler,     brdfLUTView,     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        imageInfos[3] = { environmentSampler, environmentView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+
+        VkWriteDescriptorSet writes[4]{};
+        for (int i = 0; i < 4; i++)
+        {
+            writes[i].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[i].dstSet          = ds;
+            writes[i].dstBinding      = i;
+            writes[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[i].descriptorCount = 1;
+            writes[i].pImageInfo      = &imageInfos[i];
+        }
+        vkUpdateDescriptorSets(VulkanDevice::GetDevice(), 4, writes, 0, nullptr);
         return ds;
     }
 
     VkDescriptorSetLayout GetCameraDescriptorSetLayout()  { return s_cameraLayout; }
     VkDescriptorSetLayout GetTextureDescriptorSetLayout() { return s_textureLayout; }
+    VkDescriptorSetLayout GetIBLDescriptorSetLayout()     { return s_iblLayout; }
     VkDescriptorSet       GetCameraDescriptorSet(uint32_t frameIndex) { return s_cameraDescriptorSets[frameIndex]; }
+    VkImageView           GetFallbackImageView() { return s_fallbackImageView; }
+    VkSampler             GetFallbackSampler()   { return s_fallbackSampler; }
+    VkDescriptorSet       GetFallbackTextureDescriptorSet() { return s_fallbackTextureDs; }
 }

@@ -12,6 +12,6 @@ namespace Texture
         VmaAllocation allocation = VK_NULL_HANDLE;
     };
 
-    bool LoadFromFile(TextureData& texture, const char* filePath);
+    bool LoadFromFile(TextureData& texture, const char* filePath, bool sRGB = true);
     void Destroy(TextureData& texture);
 }

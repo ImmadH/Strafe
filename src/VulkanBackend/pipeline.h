@@ -11,6 +11,7 @@ namespace VulkanPipeline
 
     VkRenderPass     GetRenderPass();
     VkPipeline       GetGraphicsPipeline();
+    VkPipeline       GetSkyboxPipeline();
     VkPipelineLayout GetPipelineLayout();
     std::vector<VkFramebuffer> GetFramebuffers();
 }

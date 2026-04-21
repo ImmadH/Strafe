@@ -7,7 +7,7 @@
 
 namespace VulkanSynchronization
 {
-	// Both semaphore types indexed per swapchain image — prevents reuse while
+	// Both semaphore types indexed per swapchain image  prevents reuse while
 	// the presentation engine still holds a reference to them.
 	std::vector<VkSemaphore> imageAvailableSemaphores;
 	std::vector<VkSemaphore> renderFinishedSemaphores;

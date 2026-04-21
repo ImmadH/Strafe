@@ -15,6 +15,7 @@ namespace VulkanPipeline
 	VkRenderPass renderPass = VK_NULL_HANDLE;
 	VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
 	VkPipeline graphicsPipeline = VK_NULL_HANDLE;
+	VkPipeline skyboxPipeline   = VK_NULL_HANDLE;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 
 	static VkImage       depthImage      = VK_NULL_HANDLE;
@@ -195,8 +196,8 @@ namespace VulkanPipeline
 	{
 		CreateRenderPass();
 
-		auto vertShaderCode = ReadFile("shaders/compiled/main.vert.spv");
-		auto fragShaderCode = ReadFile("shaders/compiled/main.frag.spv");
+		auto vertShaderCode = ReadFile("shaders/compiled/pbr.vert.spv");
+		auto fragShaderCode = ReadFile("shaders/compiled/pbr.frag.spv");
 
 		VkShaderModule vertShaderModule = CreateShaderModule(vertShaderCode);
 		VkShaderModule fragShaderModule = CreateShaderModule(fragShaderCode);
@@ -282,17 +283,18 @@ namespace VulkanPipeline
 
 		VkDescriptorSetLayout setLayouts[] = {
 			MemoryManager::GetCameraDescriptorSetLayout(),
-			MemoryManager::GetTextureDescriptorSetLayout()
+			MemoryManager::GetTextureDescriptorSetLayout(),
+			MemoryManager::GetIBLDescriptorSetLayout()
 		};
 
 		VkPushConstantRange pushConstant{};
-		pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+		pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 		pushConstant.offset     = 0;
-		pushConstant.size       = sizeof(float) * 16; // mat4
+		pushConstant.size       = sizeof(float) * 16 + sizeof(float) * 4 + sizeof(float) * 2; // mat4 + vec4 lightDir + metallic/roughness factors
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount         = 2;
+		pipelineLayoutInfo.setLayoutCount         = 3;
 		pipelineLayoutInfo.pSetLayouts            = setLayouts;
 		pipelineLayoutInfo.pushConstantRangeCount = 1;
 		pipelineLayoutInfo.pPushConstantRanges    = &pushConstant;
@@ -332,6 +334,60 @@ namespace VulkanPipeline
 
 		CreateFramebuffers();
 
+		// --- skybox pipeline (same layout, depth LESS_OR_EQUAL, no depth write) ---
+		{
+			auto skyboxVert = ReadFile("shaders/compiled/skybox.vert.spv");
+			auto skyboxFrag = ReadFile("shaders/compiled/skybox.frag.spv");
+			VkShaderModule skyboxVertMod = CreateShaderModule(skyboxVert);
+			VkShaderModule skyboxFragMod = CreateShaderModule(skyboxFrag);
+
+			VkPipelineShaderStageCreateInfo skyboxStages[2]{};
+			skyboxStages[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			skyboxStages[0].stage  = VK_SHADER_STAGE_VERTEX_BIT;
+			skyboxStages[0].module = skyboxVertMod;
+			skyboxStages[0].pName  = "main";
+			skyboxStages[1].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			skyboxStages[1].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+			skyboxStages[1].module = skyboxFragMod;
+			skyboxStages[1].pName  = "main";
+
+			// position-only vertex input (stride = 12 bytes)
+			VkVertexInputBindingDescription skyboxBinding{};
+			skyboxBinding.binding   = 0;
+			skyboxBinding.stride    = sizeof(float) * 3;
+			skyboxBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+			VkVertexInputAttributeDescription skyboxAttr{};
+			skyboxAttr.binding  = 0;
+			skyboxAttr.location = 0;
+			skyboxAttr.format   = VK_FORMAT_R32G32B32_SFLOAT;
+			skyboxAttr.offset   = 0;
+
+			VkPipelineVertexInputStateCreateInfo skyboxVI{};
+			skyboxVI.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+			skyboxVI.vertexBindingDescriptionCount   = 1;
+			skyboxVI.pVertexBindingDescriptions      = &skyboxBinding;
+			skyboxVI.vertexAttributeDescriptionCount = 1;
+			skyboxVI.pVertexAttributeDescriptions    = &skyboxAttr;
+
+			VkPipelineDepthStencilStateCreateInfo skyboxDepth{};
+			skyboxDepth.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+			skyboxDepth.depthTestEnable  = VK_TRUE;
+			skyboxDepth.depthWriteEnable = VK_FALSE;          // skybox never writes depth
+			skyboxDepth.depthCompareOp   = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+			VkGraphicsPipelineCreateInfo skyboxInfo = pipelineInfo;
+			skyboxInfo.pStages            = skyboxStages;
+			skyboxInfo.pVertexInputState  = &skyboxVI;
+			skyboxInfo.pDepthStencilState = &skyboxDepth;
+
+			if (vkCreateGraphicsPipelines(VulkanDevice::GetDevice(), VK_NULL_HANDLE, 1, &skyboxInfo, nullptr, &skyboxPipeline) != VK_SUCCESS)
+				throw std::runtime_error("Failed to create skybox pipeline");
+
+			vkDestroyShaderModule(VulkanDevice::GetDevice(), skyboxVertMod, nullptr);
+			vkDestroyShaderModule(VulkanDevice::GetDevice(), skyboxFragMod, nullptr);
+		}
+
 		return true;
 	}
 
@@ -356,6 +412,11 @@ namespace VulkanPipeline
 		return graphicsPipeline;
 	}
 
+	VkPipeline GetSkyboxPipeline()
+	{
+		return skyboxPipeline;
+	}
+
 	std::vector<VkFramebuffer> GetFramebuffers()
 	{
 		return swapChainFramebuffers;
@@ -377,6 +438,7 @@ namespace VulkanPipeline
 		swapChainFramebuffers.clear();
 
 		DestroyDepthResources();
+		vkDestroyPipeline(device, skyboxPipeline,   nullptr);
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyRenderPass(device, renderPass, nullptr);

@@ -6,6 +6,7 @@
 #include "memory.h"
 #include "app.h"
 #include "camera.h"
+#include <glm/gtc/type_ptr.hpp>
 #include "imgui_manager.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -88,9 +89,11 @@ namespace VulkanCommands
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             VulkanPipeline::GetPipelineLayout(), 0, 1, &cameraDs, 0, nullptr);
 
-        glm::mat4 model = glm::mat4(1.0f);
-        vkCmdPushConstants(cmd, VulkanPipeline::GetPipelineLayout(),
-            VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &model);
+        VkDescriptorSet iblDs = App::GetIBLDescriptorSet();
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            VulkanPipeline::GetPipelineLayout(), 2, 1, &iblDs, 0, nullptr);
+
+        struct PushData { glm::mat4 model; glm::vec4 lightDir; float metallicFactor; float roughnessFactor; };
 
         Mesh::AssetData& mesh = App::GetMesh();
         VkDeviceSize offset = 0;
@@ -113,13 +116,34 @@ namespace VulkanCommands
         scissor.extent = extent;
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+        bool  matOverride = App::IsMaterialOverride();
+        float debugMetal  = App::GetDebugMetallic();
+        float debugRough  = App::GetDebugRoughness();
+
         for (const Mesh::MeshData& sub : mesh.meshes)
         {
-            if (sub.textureDescriptorSet != VK_NULL_HANDLE)
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    VulkanPipeline::GetPipelineLayout(), 1, 1, &sub.textureDescriptorSet, 0, nullptr);
+            float mf = matOverride ? debugMetal : sub.metallicFactor;
+            float rf = matOverride ? debugRough : sub.roughnessFactor;
+            PushData push{ glm::mat4(1.0f), glm::vec4(App::GetLightDir(), 0.0f), mf, rf };
+            vkCmdPushConstants(cmd, VulkanPipeline::GetPipelineLayout(),
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushData), &push);
+
+            VkDescriptorSet texDs = sub.textureDescriptorSet != VK_NULL_HANDLE
+                ? sub.textureDescriptorSet
+                : MemoryManager::GetFallbackTextureDescriptorSet();
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                VulkanPipeline::GetPipelineLayout(), 1, 1, &texDs, 0, nullptr);
 
             vkCmdDrawIndexed(cmd, sub.indexCount, 1, sub.indexOffset, 0, 0);
+        }
+
+        // skybox — drawn after geometry, depth LESS_OR_EQUAL so it fills empty space only
+        {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline::GetSkyboxPipeline());
+            VkBuffer skyboxVB = App::GetSkyboxVB();
+            VkDeviceSize skyboxOffset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &skyboxVB, &skyboxOffset);
+            vkCmdDraw(cmd, 36, 1, 0, 0);
         }
 
         ImGuiManager::Render(cmd);

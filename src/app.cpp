@@ -18,11 +18,20 @@
 #include "camera.h"
 #include "imgui_manager.h"
 #include "imgui.h"
+#include "cubemap.h"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace App
 {
-  static bool framebufferResized = false;
-  static bool isFullscreen = false;
+  static bool      framebufferResized  = false;
+  static bool      isFullscreen        = false;
+  static glm::vec3 lightDir            = glm::normalize(glm::vec3(1.0f, 2.0f, 1.0f));
+  static bool      overrideMaterial    = false;
+  static float     debugMetallic       = 1.0f;
+  static float     debugRoughness      = 0.5f;
+
+  glm::vec3 GetLightDir() { return lightDir; }
 
   static void ApplyFullscreenState(GLFWwindow* window)
   {
@@ -44,6 +53,14 @@ namespace App
   static uint32_t acquireSemaphoreIndex = 0;
   static Mesh::AssetData mesh;
   static std::unordered_map<std::string, Texture::TextureData> textures;
+  static Cubemap::IBLData ibl;
+  static VkDescriptorSet  iblDescSet = VK_NULL_HANDLE;
+
+  VkDescriptorSet GetIBLDescriptorSet()  { return iblDescSet; }
+  VkBuffer        GetSkyboxVB()          { return ibl.skyboxVB; }
+  bool            IsMaterialOverride()   { return overrideMaterial; }
+  float           GetDebugMetallic()     { return debugMetallic; }
+  float           GetDebugRoughness()    { return debugRoughness; }
 
   Mesh::AssetData& GetMesh() { return mesh; }
 
@@ -128,7 +145,7 @@ namespace App
       return false;
     }
 
-    const char* modelPath = "assets/models/Person/scene.gltf";
+	const char* modelPath = "assets/models/Bike/scene.gltf";
     if (!Mesh::LoadFromFile(mesh, modelPath))
     {
       std::cout << "Failed to load mesh\n";
@@ -157,9 +174,45 @@ namespace App
         textures[fullPath] = tex;
       }
 
+      VkImageView mrView    = MemoryManager::GetFallbackImageView();
+      VkSampler   mrSampler = MemoryManager::GetFallbackSampler();
+
+      if (!sub.metallicRoughnessPath.empty())
+      {
+        std::string mrPath = modelDir + sub.metallicRoughnessPath;
+        if (textures.find(mrPath) == textures.end())
+        {
+          Texture::TextureData mrTex;
+          if (!Texture::LoadFromFile(mrTex, mrPath.c_str(), false))
+            std::cout << "Failed to load metallic/roughness texture: " << mrPath << "\n";
+          else
+            textures[mrPath] = mrTex;
+        }
+        if (textures.find(mrPath) != textures.end())
+        {
+          mrView    = textures[mrPath].imageView;
+          mrSampler = textures[mrPath].sampler;
+        }
+      }
+
       sub.textureDescriptorSet = MemoryManager::AllocateTextureDescriptorSet(
-        textures[fullPath].imageView, textures[fullPath].sampler);
+        textures[fullPath].imageView, textures[fullPath].sampler,
+        mrView, mrSampler);
     }
+
+    if (!Cubemap::CreateFromFaces(ibl,
+          "assets/hdri/warmbar/skybox",
+          "assets/hdri/warmbar/irradiance"))
+    {
+      std::cout << "Failed to create IBL\n";
+      return false;
+    }
+
+    iblDescSet = MemoryManager::AllocateIBLDescriptorSet(
+      ibl.irradiance.imageView,  ibl.irradiance.sampler,
+      ibl.prefiltered.imageView, ibl.prefiltered.sampler,
+      ibl.brdfLUTView,           ibl.brdfLUTSampler,
+      ibl.environment.imageView, ibl.environment.sampler);
 
     return true;
   }
@@ -208,6 +261,21 @@ namespace App
     ImGui::Begin("Debug - F1 For Cursor");
     if (ImGui::CollapsingHeader("Application Settings"))
       ImGui::Checkbox("Fullscreen", &isFullscreen);
+
+    if (ImGui::CollapsingHeader("Lighting"))
+    {
+      if (ImGui::DragFloat3("Direction", &lightDir.x, 0.01f, -1.0f, 1.0f))
+        lightDir = glm::normalize(lightDir);
+    }
+    if (ImGui::CollapsingHeader("Material Debug"))
+    {
+      ImGui::Checkbox("Override Material", &overrideMaterial);
+      if (overrideMaterial)
+      {
+        ImGui::SliderFloat("Metallic",   &debugMetallic,  0.0f, 1.0f);
+        ImGui::SliderFloat("Roughness",  &debugRoughness, 0.0f, 1.0f);
+      }
+    }
     ImGui::End();
     ImGuiManager::EndFrame();
 
@@ -282,6 +350,7 @@ namespace App
   void cleanup()
   {
     ImGuiManager::Shutdown();
+    Cubemap::Destroy(ibl);
     Mesh::Destroy(mesh);
     for (auto& [path, tex] : textures)
       Texture::Destroy(tex);

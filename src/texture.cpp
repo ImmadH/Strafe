@@ -9,7 +9,7 @@
 namespace Texture
 {
 
-bool LoadFromFile(TextureData& texture, const char* filePath)
+bool LoadFromFile(TextureData& texture, const char* filePath, bool sRGB)
 {
     int width, height, channels;
     stbi_uc* pixels = stbi_load(filePath, &width, &height, &channels, STBI_rgb_alpha);
@@ -24,7 +24,7 @@ bool LoadFromFile(TextureData& texture, const char* filePath)
     imageInfo.extent        = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
     imageInfo.mipLevels     = mipLevels;
     imageInfo.arrayLayers   = 1;
-    imageInfo.format        = VK_FORMAT_R8G8B8A8_SRGB;
+    imageInfo.format        = sRGB ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
     imageInfo.tiling        = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     imageInfo.usage         = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -102,7 +102,7 @@ bool LoadFromFile(TextureData& texture, const char* filePath)
     viewInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image                           = texture.image;
     viewInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format                          = VK_FORMAT_R8G8B8A8_SRGB;
+    viewInfo.format                          = sRGB ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
     viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.baseMipLevel   = 0;
     viewInfo.subresourceRange.levelCount     = mipLevels;
