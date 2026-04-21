@@ -26,7 +26,7 @@ layout(set = 2, binding = 2) uniform sampler2D   brdfLUT;
 layout(location = 0) out vec4 outColor;
 
 const float PI      = 3.14159265359;
-const float MAX_LOD = 4.0; // prefiltered map has 5 mip levels (0..4)
+const float MAX_LOD = 4.0; 
 
 const vec3 lightColor = vec3(3.0);
 
@@ -56,7 +56,7 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0)
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-// roughness-attenuated Fresnel for IBL ambient — avoids bright rim on rough metals
+//Fresnel for IBL ambient 
 vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
 {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
@@ -92,12 +92,11 @@ void main()
     vec3  specDirect = (NDF * G * F) / (4.0 * max(dot(N, V), 0.0) * NdotL + 0.0001);
     vec3  Lo         = (kD_direct * albedo / PI + specDirect) * lightColor * NdotL;
 
-    // --- IBL ambient ---
+    //ibl amb
     float NdotV  = max(dot(N, V), 0.0);
     vec3  kS_ibl = FresnelSchlickRoughness(NdotV, F0, roughness);
     vec3  kD_ibl = (1.0 - kS_ibl) * (1.0 - metallic);
 
-    // Y negated to match cubemap face convention (same flip as skybox.frag)
     vec3 iblN = vec3(N.x, -N.y, N.z);
     vec3 iblR = vec3(R.x, -R.y, R.z);
 
@@ -111,7 +110,7 @@ void main()
     vec3 ambient = diffuse + specIBL;
     vec3 color   = ambient + Lo;
 
-    // Reinhard tone map (gamma handled by SRGB swapchain)
+    // Reinhard tone map 
     color = color / (color + vec3(1.0));
 
     outColor = vec4(color, 1.0);

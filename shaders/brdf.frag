@@ -35,7 +35,6 @@ vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float roughness) {
     return normalize(tangent * H.x + bitangent * H.y + N * H.z);
 }
 
-// IBL k remapping: k = roughness^2 / 2
 float GeometrySchlickGGX(float NdotV, float roughness) {
     float k = (roughness * roughness) / 2.0;
     return NdotV / (NdotV * (1.0 - k) + k);

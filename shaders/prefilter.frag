@@ -44,7 +44,7 @@ vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float roughness) {
 
 void main() {
     vec3 N = normalize(localPos);
-    vec3 V = N; // assume V = N (split-sum approximation)
+    vec3 V = N; 
 
     vec3  prefilteredColor = vec3(0.0);
     float totalWeight      = 0.0;

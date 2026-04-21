@@ -27,9 +27,7 @@ namespace Cubemap
         VmaAllocation skyboxVBAlloc = VK_NULL_HANDLE;
     };
 
-    // single equirectangular HDR → full IBL pipeline
     bool Create(IBLData& ibl, const char* hdrPath);
-    // pre-baked cubemap faces (px/nx/py/ny/pz/nz.hdr per folder)
     bool CreateFromFaces(IBLData& ibl, const char* skyboxDir, const char* irradianceDir);
     void Destroy(IBLData& ibl);
 }
