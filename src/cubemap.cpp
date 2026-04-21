@@ -736,7 +736,6 @@ namespace Cubemap
         RenderBRDFLUT(brdfRP, brdfPipeline, ibl);
         std::cout << "[IBL] Done\n";
 
-        // keep cube VB alive for skybox rendering
         ibl.skyboxVB      = cubeVB;
         ibl.skyboxVBAlloc = cubeAlloc;
 
@@ -903,7 +902,6 @@ namespace Cubemap
             "shaders/compiled/prefilter.frag.spv");
         Pipeline brdfPipeline = CreateBRDFPipeline(brdfRP);
 
-        // --- prefilter from environment ---
         std::cout << "[IBL] Pass: prefilter\n";
         {
             VkDescriptorSet ds = AllocateInputSet(dsPool, dsLayout,

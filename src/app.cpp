@@ -145,7 +145,7 @@ namespace App
       return false;
     }
 
-	const char* modelPath = "assets/models/Bike/scene.gltf";
+	const char* modelPath = "assets/models/Helmet/DamagedHelmet.gltf";
     if (!Mesh::LoadFromFile(mesh, modelPath))
     {
       std::cout << "Failed to load mesh\n";
