@@ -8,6 +8,7 @@
 #include <string>
 
 #include "vk_manager.h"
+#include "VulkanBackend/pipeline.h"
 #include "VulkanBackend/device.h"
 #include "VulkanBackend/swapchain.h"
 #include "VulkanBackend/commands.h"
@@ -15,9 +16,14 @@
 #include "VulkanBackend/memory.h"
 #include "mesh.h"
 #include "texture.h"
+#include "asset_manager.h"
+#include "scene.h"
 #include "camera.h"
 #include "imgui_manager.h"
 #include "imgui.h"
+#include <glm/gtc/quaternion.hpp>
+#include <functional>
+#include <filesystem>
 #include "cubemap.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -27,11 +33,29 @@ namespace App
   static bool      framebufferResized  = false;
   static bool      isFullscreen        = false;
   static glm::vec3 lightDir            = glm::normalize(glm::vec3(1.0f, 2.0f, 1.0f));
+  static bool      lightEnabled        = true;
   static bool      overrideMaterial    = false;
   static float     debugMetallic       = 1.0f;
   static float     debugRoughness      = 0.5f;
+  static bool      useNormalMap        = true;
+  static bool      useAO               = true;
+  static bool      useIBL              = true;
+  static int32_t   selectedNode        = -1;
+  static bool      showScene           = false;
+  static bool      showDebug           = false;
+  static bool      showProfile         = false;
+  static bool      showUI              = true;
+  static bool      s_msaaPending      = false;
 
-  glm::vec3 GetLightDir() { return lightDir; }
+
+  struct ModelEntry { std::string name; std::string path; };
+  static std::vector<ModelEntry> s_models;
+  static int s_selectedModel = 0;
+  static std::vector<ModelEntry> s_hdris;
+  static int s_selectedHdri = 0;
+
+  glm::vec3 GetLightDir()    { return lightDir; }
+  bool      IsLightEnabled() { return lightEnabled; }
 
   static void ApplyFullscreenState(GLFWwindow* window)
   {
@@ -51,8 +75,6 @@ namespace App
   }
   static uint32_t currentFrame = 0;
   static uint32_t acquireSemaphoreIndex = 0;
-  static Mesh::AssetData mesh;
-  static std::unordered_map<std::string, Texture::TextureData> textures;
   static Cubemap::IBLData ibl;
   static VkDescriptorSet  iblDescSet = VK_NULL_HANDLE;
 
@@ -61,8 +83,9 @@ namespace App
   bool            IsMaterialOverride()   { return overrideMaterial; }
   float           GetDebugMetallic()     { return debugMetallic; }
   float           GetDebugRoughness()    { return debugRoughness; }
-
-  Mesh::AssetData& GetMesh() { return mesh; }
+  bool            UseNormalMap()         { return useNormalMap; }
+  bool            UseAO()               { return useAO; }
+  bool            UseIBL()              { return useIBL; }
 
   static double lastMouseX  = 0.0;
   static double lastMouseY  = 0.0;
@@ -73,6 +96,9 @@ namespace App
   {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
       glfwSetWindowShouldClose(window, GLFW_TRUE);
+
+    if (key == GLFW_KEY_F2 && action == GLFW_PRESS)
+      showUI = !showUI;
 
     if (key == GLFW_KEY_F1 && action == GLFW_PRESS)
     {
@@ -145,64 +171,40 @@ namespace App
       return false;
     }
 
-	const char* modelPath = "assets/models/Helmet/DamagedHelmet.gltf";
-    if (!Mesh::LoadFromFile(mesh, modelPath))
+    AssetManager::Init();
+    Scene::Init();
+
+    namespace fs = std::filesystem;
+    for (auto& entry : fs::recursive_directory_iterator("assets/models"))
+    {
+      if (entry.path().extension() == ".gltf")
+      {
+        std::string path = entry.path().generic_string();
+        std::string name = entry.path().parent_path().filename().string();
+        s_models.push_back({ name, path });
+      }
+    }
+    for (auto& entry : fs::recursive_directory_iterator("assets/hdri"))
+    {
+      if (entry.path().extension() == ".hdr")
+      {
+        std::string path = entry.path().generic_string();
+        std::string name = entry.path().stem().string();
+        s_hdris.push_back({ name, path });
+      }
+    }
+
+    auto sponzaMesh = AssetManager::LoadMesh("assets/models/Sponza/Sponza.gltf");
+    if (!sponzaMesh.valid())
     {
       std::cout << "Failed to load mesh\n";
       return false;
     }
+    int32_t sponzaNode = Scene::AddNode("Sponza");
+    Scene::GetNode(sponzaNode).mesh = sponzaMesh;
 
-	//TODO MAKE A ASSET MANAGER
-    //texture directory from model path
-    std::string modelDir(modelPath);
-    modelDir = modelDir.substr(0, modelDir.find_last_of("/\\") + 1);
 
-    for (Mesh::MeshData& sub : mesh.meshes)
-    {
-      if (sub.texturePath.empty()) continue;
-
-      std::string fullPath = modelDir + sub.texturePath;
-
-      if (textures.find(fullPath) == textures.end())
-      {
-        Texture::TextureData tex;
-        if (!Texture::LoadFromFile(tex, fullPath.c_str()))
-        {
-          std::cout << "Failed to load texture: " << fullPath << "\n";
-          return false;
-        }
-        textures[fullPath] = tex;
-      }
-
-      VkImageView mrView    = MemoryManager::GetFallbackImageView();
-      VkSampler   mrSampler = MemoryManager::GetFallbackSampler();
-
-      if (!sub.metallicRoughnessPath.empty())
-      {
-        std::string mrPath = modelDir + sub.metallicRoughnessPath;
-        if (textures.find(mrPath) == textures.end())
-        {
-          Texture::TextureData mrTex;
-          if (!Texture::LoadFromFile(mrTex, mrPath.c_str(), false))
-            std::cout << "Failed to load metallic/roughness texture: " << mrPath << "\n";
-          else
-            textures[mrPath] = mrTex;
-        }
-        if (textures.find(mrPath) != textures.end())
-        {
-          mrView    = textures[mrPath].imageView;
-          mrSampler = textures[mrPath].sampler;
-        }
-      }
-
-      sub.textureDescriptorSet = MemoryManager::AllocateTextureDescriptorSet(
-        textures[fullPath].imageView, textures[fullPath].sampler,
-        mrView, mrSampler);
-    }
-
-    if (!Cubemap::CreateFromFaces(ibl,
-          "assets/hdri/warmbar/skybox",
-          "assets/hdri/warmbar/irradiance"))
+    if (!Cubemap::Create(ibl, "assets/hdri/sunset.hdr"))
     {
       std::cout << "Failed to create IBL\n";
       return false;
@@ -220,9 +222,12 @@ namespace App
   void DrawFrame()
   {
     static double lastTime = glfwGetTime();
-    double now = glfwGetTime();
-    float dt   = static_cast<float>(now - lastTime);
-    lastTime   = now;
+    double now    = glfwGetTime();
+    float dt      = static_cast<float>(now - lastTime);
+    float frameMs = dt * 1000.0f;
+    lastTime      = now;
+
+    ImGuiManager::ProfilerUpdate(dt);
 
     ApplyFullscreenState(App::Instance::GetWindowPointer());
 
@@ -257,26 +262,244 @@ namespace App
 
     vkResetFences(device, 1, &inFlightFence);
 
-    ImGuiManager::BeginFrame();
-    ImGui::Begin("Debug - F1 For Cursor");
-    if (ImGui::CollapsingHeader("Application Settings"))
-      ImGui::Checkbox("Fullscreen", &isFullscreen);
+    if (s_msaaPending)
+    {
+      s_msaaPending = false;
+      framebufferResized = false;
+      vkDeviceWaitIdle(device);
+      ImGuiManager::Shutdown();
+      VulkanBackendManager::RecreatePipeline();
+      ImGuiManager::Init();
+    }
 
-    if (ImGui::CollapsingHeader("Lighting"))
+    ImGuiManager::BeginFrame();
+
+    if (showUI)
     {
-      if (ImGui::DragFloat3("Direction", &lightDir.x, 0.01f, -1.0f, 1.0f))
-        lightDir = glm::normalize(lightDir);
+    // ---- navbar ----
+    ImGui::PushStyleColor(ImGuiCol_MenuBarBg,     ImVec4(0.10f, 0.10f, 0.13f, 1.00f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.22f, 0.22f, 0.30f, 1.00f));
+    if (ImGui::BeginMainMenuBar())
+    {
+      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.78f, 1.00f, 1.00f));
+      ImGui::Text(" STRAFE");
+      ImGui::PopStyleColor();
+
+      ImGui::Spacing();
+      ImGui::Spacing();
+
+      ImGui::MenuItem("Scene",   nullptr, &showScene);
+      ImGui::MenuItem("Debug",   nullptr, &showDebug);
+      ImGui::MenuItem("Profile", nullptr, &showProfile);
+
+      ImGui::EndMainMenuBar();
     }
-    if (ImGui::CollapsingHeader("Material Debug"))
+    ImGui::PopStyleColor(2);
+
+    // ---- scene window ----
+    if (showScene)
     {
-      ImGui::Checkbox("Override Material", &overrideMaterial);
-      if (overrideMaterial)
+      ImGui::SetNextWindowSize(ImVec2(280, 500), ImGuiCond_FirstUseEver);
+      ImGui::SetNextWindowPos(ImVec2(10, 30),    ImGuiCond_FirstUseEver);
+      ImGui::Begin("Scene", &showScene);
+
+      // hierarchy
+      if (ImGui::CollapsingHeader("Hierarchy", ImGuiTreeNodeFlags_DefaultOpen))
       {
-        ImGui::SliderFloat("Metallic",   &debugMetallic,  0.0f, 1.0f);
-        ImGui::SliderFloat("Roughness",  &debugRoughness, 0.0f, 1.0f);
+        std::function<void(int32_t)> drawNode = [&](int32_t idx)
+        {
+          Scene::Node& node = Scene::GetNode(idx);
+          if (!node.active) return;
+          ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow
+                                   | ImGuiTreeNodeFlags_SpanAvailWidth;
+          if (node.children.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
+          if (selectedNode == idx)   flags |= ImGuiTreeNodeFlags_Selected;
+
+          bool open = ImGui::TreeNodeEx((void*)(intptr_t)idx, flags, "%s", node.name.c_str());
+          if (ImGui::IsItemClicked())
+            selectedNode = idx;
+
+          if (open)
+          {
+            for (int32_t child : node.children) drawNode(child);
+            ImGui::TreePop();
+          }
+        };
+
+        for (int32_t i = 0; i < Scene::NodeCount(); i++)
+          if (Scene::GetNode(i).parent == -1)
+            drawNode(i);
       }
+
+      // inspector
+      ImGui::Spacing();
+      if (ImGui::CollapsingHeader("Inspector", ImGuiTreeNodeFlags_DefaultOpen))
+      {
+        if (selectedNode >= 0 && selectedNode < Scene::NodeCount())
+        {
+          Scene::Node& node = Scene::GetNode(selectedNode);
+          ImGui::Text("%s", node.name.c_str());
+          ImGui::Checkbox("Active", &node.active);
+          ImGui::Separator();
+
+          ImGui::DragFloat3("Position", &node.localTransform.position.x, 0.01f);
+
+          glm::vec3 euler = glm::degrees(glm::eulerAngles(node.localTransform.rotation));
+          if (ImGui::DragFloat3("Rotation", &euler.x, 0.5f))
+            node.localTransform.rotation = glm::quat(glm::radians(euler));
+          ImGui::SameLine();
+          if (ImGui::SmallButton("Reset##rot"))
+            node.localTransform.rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+
+          ImGui::DragFloat3("Scale", &node.localTransform.scale.x, 0.01f, 0.001f, 100.0f);
+          ImGui::SameLine();
+          if (ImGui::SmallButton("Reset"))
+            node.localTransform.scale = glm::vec3(1.0f);
+
+          ImGui::Spacing();
+          ImGui::Separator();
+          if (ImGui::Button("Unload", ImVec2(-1, 0)))
+          {
+            vkDeviceWaitIdle(VulkanDevice::GetDevice());
+            AssetManager::Release(Scene::GetNode(selectedNode).mesh);
+            Scene::RemoveNode(selectedNode);
+            selectedNode = -1;
+          }
+        }
+        else
+        {
+          ImGui::TextDisabled("Nothing selected");
+        }
+      }
+
+      // asset loader
+      ImGui::Spacing();
+      if (ImGui::CollapsingHeader("Assets", ImGuiTreeNodeFlags_DefaultOpen))
+      {
+        if (!s_models.empty())
+        {
+          ImGui::SetNextItemWidth(-1);
+          if (ImGui::BeginCombo("##model", s_models[s_selectedModel].name.c_str()))
+          {
+            for (int i = 0; i < (int)s_models.size(); i++)
+            {
+              bool selected = (i == s_selectedModel);
+              if (ImGui::Selectable(s_models[i].name.c_str(), selected))
+                s_selectedModel = i;
+              if (selected)
+                ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+          }
+
+          if (ImGui::Button("Load", ImVec2(-1, 0)))
+          {
+            const auto& entry = s_models[s_selectedModel];
+            auto handle = AssetManager::LoadMesh(entry.path.c_str());
+            if (handle.valid())
+            {
+              int32_t node = Scene::AddNode(entry.name.c_str());
+              Scene::GetNode(node).mesh = handle;
+            }
+            else
+            {
+              std::cout << "Failed to load: " << entry.path << "\n";
+            }
+          }
+        }
+
+        ImGui::Spacing();
+        ImGui::TextDisabled("Environment");
+        if (!s_hdris.empty())
+        {
+          ImGui::SetNextItemWidth(-1);
+          if (ImGui::BeginCombo("##hdri", s_hdris[s_selectedHdri].name.c_str()))
+          {
+            for (int i = 0; i < (int)s_hdris.size(); i++)
+            {
+              bool selected = (i == s_selectedHdri);
+              if (ImGui::Selectable(s_hdris[i].name.c_str(), selected))
+                s_selectedHdri = i;
+              if (selected)
+                ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+          }
+          if (ImGui::Button("Load##hdri", ImVec2(-1, 0)))
+          {
+            vkDeviceWaitIdle(VulkanDevice::GetDevice());
+            Cubemap::Destroy(ibl);
+            if (Cubemap::Create(ibl, s_hdris[s_selectedHdri].path.c_str()))
+            {
+              MemoryManager::UpdateIBLDescriptorSet(iblDescSet,
+                ibl.irradiance.imageView,  ibl.irradiance.sampler,
+                ibl.prefiltered.imageView, ibl.prefiltered.sampler,
+                ibl.brdfLUTView,           ibl.brdfLUTSampler,
+                ibl.environment.imageView, ibl.environment.sampler);
+            }
+            else
+            {
+              std::cout << "Failed to load HDRI: " << s_hdris[s_selectedHdri].path << "\n";
+            }
+          }
+        }
+      }
+
+      ImGui::End();
     }
-    ImGui::End();
+
+    // ---- debug window ----
+    if (showDebug)
+    {
+      ImGui::SetNextWindowSize(ImVec2(280, 300), ImGuiCond_FirstUseEver);
+      ImGui::SetNextWindowPos(ImVec2(10, 540),   ImGuiCond_FirstUseEver);
+      ImGui::Begin("Debug", &showDebug);
+
+      if (ImGui::CollapsingHeader("Application"))
+      {
+        ImGui::Checkbox("Fullscreen", &isFullscreen);
+        bool msaa = VulkanPipeline::GetMSAAEnabled();
+        if (ImGui::Checkbox("MSAA 8x", &msaa))
+        {
+          VulkanPipeline::SetMSAAEnabled(msaa);
+          s_msaaPending = true;
+        }
+        float fov = Camera::GetFOV();
+        if (ImGui::SliderFloat("FOV", &fov, 10.0f, 120.0f))
+          Camera::SetFOV(fov);
+      }
+
+      if (ImGui::CollapsingHeader("Lighting"))
+      {
+        ImGui::Checkbox("Enabled", &lightEnabled);
+        if (lightEnabled)
+        {
+          if (ImGui::DragFloat3("Direction", &lightDir.x, 0.01f, -1.0f, 1.0f))
+            lightDir = glm::normalize(lightDir);
+        }
+      }
+
+      if (ImGui::CollapsingHeader("Material"))
+      {
+        ImGui::Checkbox("Override Material", &overrideMaterial);
+        if (overrideMaterial)
+        {
+          ImGui::SliderFloat("Metallic",  &debugMetallic,  0.0f, 1.0f);
+          ImGui::SliderFloat("Roughness", &debugRoughness, 0.0f, 1.0f);
+        }
+        ImGui::Separator();
+        ImGui::Checkbox("Normal Maps", &useNormalMap);
+        ImGui::Checkbox("AO",          &useAO);
+        ImGui::Checkbox("IBL",         &useIBL);
+      }
+
+      ImGui::End();
+    }
+
+    if (showProfile)
+      ImGuiManager::DrawProfileWindow(showProfile);
+    } // showUI
+
     ImGuiManager::EndFrame();
 
     vkResetCommandBuffer(commandBuffer, 0);
@@ -351,9 +574,8 @@ namespace App
   {
     ImGuiManager::Shutdown();
     Cubemap::Destroy(ibl);
-    Mesh::Destroy(mesh);
-    for (auto& [path, tex] : textures)
-      Texture::Destroy(tex);
+    Scene::Shutdown();
+    AssetManager::Shutdown();
     VulkanBackendManager::Shutdown();
     App::Instance::Destroy();
   }

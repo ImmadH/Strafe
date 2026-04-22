@@ -8,6 +8,8 @@ namespace VulkanPipeline
     bool Create();
     void Destroy();
     void RecreateFramebuffers();
+    bool GetMSAAEnabled();
+    void SetMSAAEnabled(bool on);
 
     VkRenderPass     GetRenderPass();
     VkPipeline       GetGraphicsPipeline();

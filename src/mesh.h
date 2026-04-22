@@ -12,6 +12,7 @@ namespace Mesh
         float pos[3];
         float normal[3];
         float uv[2];
+        float tangent[4];
     };
 
     struct MeshData
@@ -20,6 +21,8 @@ namespace Mesh
         uint32_t        indexCount                = 0;
         std::string     texturePath;
         std::string     metallicRoughnessPath;
+        std::string     normalPath;
+        std::string     aoPath;
         float           metallicFactor            = 1.0f;
         float           roughnessFactor           = 1.0f;
         VkDescriptorSet textureDescriptorSet      = VK_NULL_HANDLE;

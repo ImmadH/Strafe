@@ -13,6 +13,8 @@ namespace Camera
     void ProcessMouse(float dx, float dy);
     void UpdateUBO(uint32_t frameIndex, float aspect);
 
-    VkBuffer   GetUBOBuffer(uint32_t frameIndex);
+    VkBuffer     GetUBOBuffer(uint32_t frameIndex);
     VkDeviceSize GetUBOSize();
+    float        GetFOV();
+    void         SetFOV(float f);
 }

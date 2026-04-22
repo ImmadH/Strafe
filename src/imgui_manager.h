@@ -8,4 +8,7 @@ namespace ImGuiManager
     void BeginFrame();
     void EndFrame();
     void Render(void* cmd);
+
+    void ProfilerUpdate(float dt);
+    void DrawProfileWindow(bool& show);
 }

@@ -5,6 +5,7 @@
 #include "sync.h"
 #include "memory.h"
 #include "app.h"
+#include "scene.h"
 #include "camera.h"
 #include <glm/gtc/type_ptr.hpp>
 #include "imgui_manager.h"
@@ -93,20 +94,15 @@ namespace VulkanCommands
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             VulkanPipeline::GetPipelineLayout(), 2, 1, &iblDs, 0, nullptr);
 
-        struct PushData { glm::mat4 model; glm::vec4 lightDir; float metallicFactor; float roughnessFactor; };
-
-        Mesh::AssetData& mesh = App::GetMesh();
-        VkDeviceSize offset = 0;
-        vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
-        vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+        struct PushData { glm::mat4 model; glm::vec4 lightDir; float metallicFactor; float roughnessFactor; int useNormalMap; int useAO; int useIBL; };
 
         VkExtent2D extent = VulkanSwapchain::GetSwapChainExtent();
 
         VkViewport viewport{};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = static_cast<float>(extent.width);
-        viewport.height = static_cast<float>(extent.height);
+        viewport.x        = 0.0f;
+        viewport.y        = 0.0f;
+        viewport.width    = static_cast<float>(extent.width);
+        viewport.height   = static_cast<float>(extent.height);
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
         vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -119,22 +115,36 @@ namespace VulkanCommands
         bool  matOverride = App::IsMaterialOverride();
         float debugMetal  = App::GetDebugMetallic();
         float debugRough  = App::GetDebugRoughness();
+        int   useNormal   = App::UseNormalMap() ? 1 : 0;
+        int   useAO       = App::UseAO()        ? 1 : 0;
+        int   useIBL      = App::UseIBL()       ? 1 : 0;
 
-        for (const Mesh::MeshData& sub : mesh.meshes)
+        static std::vector<Scene::DrawCall> s_draws;
+        Scene::CollectDrawCalls(s_draws);
+
+        Mesh::AssetData* lastAsset = nullptr;
+        for (const Scene::DrawCall& dc : s_draws)
         {
-            float mf = matOverride ? debugMetal : sub.metallicFactor;
-            float rf = matOverride ? debugRough : sub.roughnessFactor;
-            PushData push{ glm::mat4(1.0f), glm::vec4(App::GetLightDir(), 0.0f), mf, rf };
+            if (dc.asset != lastAsset)
+            {
+                VkDeviceSize vbOffset = 0;
+                vkCmdBindVertexBuffers(cmd, 0, 1, &dc.asset->vertexBuffer, &vbOffset);
+                vkCmdBindIndexBuffer(cmd, dc.asset->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+                lastAsset = dc.asset;
+            }
+
+            float mf = matOverride ? debugMetal : dc.metallicFactor;
+            float rf = matOverride ? debugRough : dc.roughnessFactor;
+            glm::vec3 ld = App::IsLightEnabled() ? App::GetLightDir() : glm::vec3(0.0f);
+            PushData push{ dc.worldTransform, glm::vec4(ld, 0.0f),
+                           mf, rf, useNormal, useAO, useIBL };
             vkCmdPushConstants(cmd, VulkanPipeline::GetPipelineLayout(),
                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushData), &push);
 
-            VkDescriptorSet texDs = sub.textureDescriptorSet != VK_NULL_HANDLE
-                ? sub.textureDescriptorSet
-                : MemoryManager::GetFallbackTextureDescriptorSet();
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                VulkanPipeline::GetPipelineLayout(), 1, 1, &texDs, 0, nullptr);
+                VulkanPipeline::GetPipelineLayout(), 1, 1, &dc.materialSet, 0, nullptr);
 
-            vkCmdDrawIndexed(cmd, sub.indexCount, 1, sub.indexOffset, 0, 0);
+            vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);
         }
 
         // skybox — drawn after geometry, depth LESS_OR_EQUAL so it fills empty space only

@@ -80,6 +80,13 @@ namespace VulkanBackendManager
         VulkanDevice::Destroy();
     }
 
+    void RecreatePipeline()
+    {
+        vkDeviceWaitIdle(VulkanDevice::GetDevice());
+        VulkanPipeline::Destroy();
+        VulkanPipeline::Create();
+    }
+
     void RecreateSwapChain()
     {
         vkDeviceWaitIdle(VulkanDevice::GetDevice());

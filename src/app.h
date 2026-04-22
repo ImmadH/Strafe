@@ -10,11 +10,14 @@ namespace App
   void cleanup();
 
   bool CreateSurface(void* surface);
-  Mesh::AssetData& GetMesh();
   glm::vec3 GetLightDir();
+  bool      IsLightEnabled();
   VkDescriptorSet GetIBLDescriptorSet();
   VkBuffer        GetSkyboxVB();
   bool            IsMaterialOverride();
   float           GetDebugMetallic();
   float           GetDebugRoughness();
+  bool            UseNormalMap();
+  bool            UseAO();
+  bool            UseIBL();
 }

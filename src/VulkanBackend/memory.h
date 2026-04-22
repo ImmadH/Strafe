@@ -23,8 +23,10 @@ namespace MemoryManager
     bool CreateDescriptors(VkBuffer* uboBuffers, VkDeviceSize uboSize, uint32_t frameCount);
     void DestroyDescriptors();
 
-    VkDescriptorSet AllocateTextureDescriptorSet(VkImageView albedoView,    VkSampler albedoSampler,
-                                                 VkImageView mrView,        VkSampler mrSampler);
+    VkDescriptorSet AllocateTextureDescriptorSet(VkImageView albedoView,  VkSampler albedoSampler,
+                                                 VkImageView mrView,      VkSampler mrSampler,
+                                                 VkImageView normalView,  VkSampler normalSampler,
+                                                 VkImageView aoView,      VkSampler aoSampler);
 
     VkDescriptorSetLayout GetCameraDescriptorSetLayout();
     VkDescriptorSetLayout GetTextureDescriptorSetLayout();
@@ -34,7 +36,14 @@ namespace MemoryManager
                                                    VkImageView prefilteredView, VkSampler prefilteredSampler,
                                                    VkImageView brdfLUTView,     VkSampler brdfLUTSampler,
                                                    VkImageView environmentView, VkSampler environmentSampler);
+    void                  UpdateIBLDescriptorSet  (VkDescriptorSet ds,
+                                                   VkImageView irradianceView,  VkSampler irradianceSampler,
+                                                   VkImageView prefilteredView, VkSampler prefilteredSampler,
+                                                   VkImageView brdfLUTView,     VkSampler brdfLUTSampler,
+                                                   VkImageView environmentView, VkSampler environmentSampler);
     VkImageView           GetFallbackImageView();
     VkSampler             GetFallbackSampler();
+    VkImageView           GetNormalFallbackImageView();
+    VkSampler             GetNormalFallbackSampler();
     VkDescriptorSet       GetFallbackTextureDescriptorSet();
 }

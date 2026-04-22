@@ -23,7 +23,8 @@ void main() {
     fragWorldPos    = worldPos.xyz;
 
     //corrects normals under non uniform scale
-    fragWorldNormal = normalize(mat3(transpose(inverse(push.model))) * inNormal);
+    mat3 normalMatrix = mat3(transpose(inverse(push.model)));
+    fragWorldNormal   = normalize(normalMatrix * inNormal);
 
     fragUV          = inUV;
     gl_Position     = cam.proj * cam.view * worldPos;

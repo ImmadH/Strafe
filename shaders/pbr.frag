@@ -14,10 +14,17 @@ layout(push_constant) uniform Push {
     vec4  lightDir;
     float metallicFactor;
     float roughnessFactor;
+    int   useNormalMap;
+    int   useAO;
+    int   useIBL;
 } push;
 
 layout(set = 1, binding = 0) uniform sampler2D albedoMap;
 layout(set = 1, binding = 1) uniform sampler2D metallicRoughnessMap;
+//NORMAL MAPS
+layout(set = 1, binding = 2) uniform sampler2D normalMap;
+//AO
+layout(set = 1, binding = 3) uniform sampler2D aoMap;
 
 layout(set = 2, binding = 0) uniform samplerCube irradianceMap;
 layout(set = 2, binding = 1) uniform samplerCube prefilteredMap;
@@ -69,7 +76,25 @@ void main()
     float roughness = mrSample.g * push.roughnessFactor;
     float metallic  = mrSample.b * push.metallicFactor;
 
-    vec3 N = normalize(fragWorldNormal);
+    //NORMAL MAPS
+    vec3 Ng = normalize(fragWorldNormal);
+    vec3 N;
+    if (push.useNormalMap == 1)
+    {
+        vec3 tangentNormal = texture(normalMap, fragUV).rgb * 2.0 - 1.0;
+        vec3 q1  = dFdx(fragWorldPos);
+        vec3 q2  = dFdy(fragWorldPos);
+        vec2 st1 = dFdx(fragUV);
+        vec2 st2 = dFdy(fragUV);
+        vec3 T   = normalize(q1 * st2.y - q2 * st1.y);
+        T        = normalize(T - dot(T, Ng) * Ng);
+        vec3 B   = normalize(cross(Ng, T));
+        N        = normalize(mat3(T, B, Ng) * tangentNormal);
+    }
+    else
+    {
+        N = Ng;
+    }
     vec3 camPos = -transpose(mat3(cam.view)) * vec3(cam.view[3]);
     vec3 V = normalize(camPos - fragWorldPos);
     vec3 R = reflect(-V, N);
@@ -107,7 +132,9 @@ void main()
     vec2  brdf             = texture(brdfLUT, vec2(NdotV, roughness)).rg;
     vec3  specIBL          = prefilteredColor * (kS_ibl * brdf.x + brdf.y);
 
-    vec3 ambient = diffuse + specIBL;
+    //AO
+    float ao = (push.useAO == 1) ? texture(aoMap, fragUV).r : 1.0;
+    vec3 ambient = (push.useIBL == 1) ? (diffuse + specIBL) * ao : vec3(0.0);
     vec3 color   = ambient + Lo;
 
     // Reinhard tone map 

@@ -20,7 +20,7 @@ namespace Camera
     static float     pitch       = 0.0f;
     static float     moveSpeed   = 3.0f;
     static float     sensitivity = 0.1f;
-    static float     fov         = 45.0f;
+    static float     fov         = 70.0f;
     static float     nearPlane   = 0.1f;
     static float     farPlane    = 1000.0f;
 
@@ -77,6 +77,8 @@ namespace Camera
 
     VkBuffer     GetUBOBuffer(uint32_t frameIndex) { return uboBuffers[frameIndex]; }
     VkDeviceSize GetUBOSize()                      { return sizeof(CameraUBO); }
+    float        GetFOV()                          { return fov; }
+    void         SetFOV(float f)                   { fov = f; }
 
     bool Create()
     {

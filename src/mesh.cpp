@@ -76,6 +76,15 @@ namespace Mesh
 						{
 							cgltf_accessor_read_float(accessor, j, v.uv, 2);
 						}
+						else if (attr->type == cgltf_attribute_type_tangent)
+						{
+							float t[4];
+							cgltf_accessor_read_float(accessor, j, t, 4);
+							v.tangent[0] = world[0]*t[0] + world[4]*t[1] + world[8] *t[2];
+							v.tangent[1] = world[1]*t[0] + world[5]*t[1] + world[9] *t[2];
+							v.tangent[2] = world[2]*t[0] + world[6]*t[1] + world[10]*t[2];
+							v.tangent[3] = t[3];
+						}
 					}
 				}
 
@@ -106,6 +115,16 @@ namespace Mesh
 
 					sub.metallicFactor  = pbr.metallic_factor;
 					sub.roughnessFactor = pbr.roughness_factor;
+
+					if (prim->material->normal_texture.texture &&
+					    prim->material->normal_texture.texture->image &&
+					    prim->material->normal_texture.texture->image->uri)
+						sub.normalPath = prim->material->normal_texture.texture->image->uri;
+
+					if (prim->material->occlusion_texture.texture &&
+					    prim->material->occlusion_texture.texture->image &&
+					    prim->material->occlusion_texture.texture->image->uri)
+						sub.aoPath = prim->material->occlusion_texture.texture->image->uri;
 				}
 
 				meshes.push_back(sub);
